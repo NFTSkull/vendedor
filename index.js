@@ -314,9 +314,8 @@ async function procesarMensajeUsuario({ waId, texto, enviarWhatsApp = false }) {
     const pre = resultados[1];
     if (pre.ok && pre.aprobado && pre.monto != null) {
       cuerpoRespuesta =
-        "Listo ✅\n" +
-        `Revisé tu información y puedes acceder a un monto aproximado de $${pre.monto}\n` +
-        "¿te explico cómo puedes utilizarlo?";
+        `Tu monto autorizado es aproximado de $${pre.monto}\n` +
+        "¿En qué día y horario te podemos contactar para darte más detalles?";
     }
   }
 

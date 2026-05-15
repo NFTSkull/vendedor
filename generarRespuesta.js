@@ -102,7 +102,7 @@ function faqCorta(estado) {
   return (
     "Con gusto te aclaro 👍 " +
     "Es un esquema formal del IMSS/Mejoravit; yo solo te oriento paso a paso. " +
-    "Para seguir, dime: ¿trabajas en Monterrey y cotizas al IMSS?"
+    "Para seguir, dime: ¿actualmente tienes una relación laboral vigente en Nuevo León?"
   );
 }
 
@@ -118,8 +118,10 @@ function generarRespuesta(mensaje, estado) {
     textoNormalizado === "info"
   ) {
     return {
-      respuesta: "Hola 👋 ¿Te interesa utilizar tu crédito mejoravit?",
-      nuevoEstado: "interes"
+      respuesta:
+        "Buenas tardes, gracias por contactarnos.\n" +
+        "¿Actualmente tienes una relación laboral vigente en Nuevo León?",
+      nuevoEstado: "relacion_laboral"
     };
   }
 
@@ -141,66 +143,98 @@ function generarRespuesta(mensaje, estado) {
     if (esSaludo(msg) || msg.trim().length > 0) {
       return {
         respuesta:
-          "Hola 👋 vi que te interesa el crédito Mejoravit\n" +
-          "¿quieres que revise si puedes utilizarlo?",
-        nuevoEstado: "interes"
+          "Buenas tardes, gracias por contactarnos.\n" +
+          "¿Actualmente tienes una relación laboral vigente en Nuevo León?",
+        nuevoEstado: "relacion_laboral"
       };
     }
   }
 
-  if (e === "interes") {
+  if (e === "interes" || e === "relacion_laboral") {
     if (esAfirmativo(msg)) {
       return {
-        respuesta:
-          "Perfecto 👍\n" +
-          "¿Trabajas en Monterrey y cotizas al IMSS?",
-        nuevoEstado: "filtro"
+        respuesta: "¿Actualmente estás dado de alta en INFONAVIT?",
+        nuevoEstado: "alta_infonavit"
       };
     }
     if (esNegativo(msg)) {
       return {
         respuesta:
-          "Entendido 🙌 Sin problema. Si cambias de opinión, aquí estoy; solo mándame un “hola”.",
-        nuevoEstado: "terminado"
+          "Lo sentimos, este es un requisito indispensable para obtener el crédito.",
+        nuevoEstado: "fin"
       };
     }
     return {
       respuesta:
-        "Para poder ayudarte, ¿quieres que revise si puedes utilizar tu Mejoravit?",
-      nuevoEstado: "interes"
+        "Para continuar, necesito confirmación con sí o no.\n" +
+        "¿Actualmente tienes una relación laboral vigente en Nuevo León?",
+      nuevoEstado: "relacion_laboral"
     };
   }
 
-  if (e === "filtro") {
-    console.log("ENTRANDO A FILTRO");
-
-    const negativo = esNegativo(msg);
-    const afirmativo = esAfirmativo(msg);
-
-    if (negativo) {
-      console.log("RESPUESTA NEGATIVA DETECTADA");
+  if (e === "alta_infonavit") {
+    if (esAfirmativo(msg)) {
+      return {
+        respuesta: "¿Tienes un crédito INFONAVIT activo?",
+        nuevoEstado: "credito_activo"
+      };
+    }
+    if (esNegativo(msg)) {
       return {
         respuesta:
-          "Por el momento este apoyo aplica solo para personas que trabajan y cotizan en Monterrey 🙏",
+          "Lo sentimos, este es un requisito indispensable para obtener el crédito.",
         nuevoEstado: "fin"
       };
     }
+    return {
+      respuesta:
+        "Por favor respóndeme con sí o no.\n" +
+        "¿Actualmente estás dado de alta en INFONAVIT?",
+      nuevoEstado: "alta_infonavit"
+    };
+  }
 
-    if (afirmativo) {
-      console.log("RESPUESTA AFIRMATIVA DETECTADA");
+  if (e === "credito_activo") {
+    if (esAfirmativo(msg)) {
       return {
-        respuesta: "Perfecto 🙌 compárteme tu número de seguro social para revisarlo",
+        respuesta:
+          "Es necesario que termines de pagar tu crédito para continuar.",
+        nuevoEstado: "fin"
+      };
+    }
+    if (esNegativo(msg)) {
+      return {
+        respuesta: "¿Tu centro de trabajo está en Nuevo León?",
+        nuevoEstado: "centro_trabajo_nl"
+      };
+    }
+    return {
+      respuesta:
+        "Para continuar, confírmame con sí o no.\n" +
+        "¿Tienes un crédito INFONAVIT activo?",
+      nuevoEstado: "credito_activo"
+    };
+  }
+
+  if (e === "filtro" || e === "centro_trabajo_nl") {
+    if (esAfirmativo(msg)) {
+      return {
+        respuesta: "Compárteme tu número de seguro social para darte el monto autorizado.",
         nuevoEstado: "nss"
       };
     }
-
-    const n = normalizarTexto(msg);
-    const alt = (n.length + (n.codePointAt(0) || 0)) % 2 === 0;
+    if (esNegativo(msg)) {
+      return {
+        respuesta:
+          "Lo sentimos, este es un requisito indispensable para obtener el crédito.",
+        nuevoEstado: "fin"
+      };
+    }
     return {
-      respuesta: alt
-        ? "Para poder seguir, confírmame con un sí o un no: ¿trabajas en Monterrey y cotizas al IMSS? Si quieres, también puedes explicarme en una sola frase."
-        : "Solo para ubicarnos bien: ¿trabajas en Monterrey y cotizas al IMSS? Con un “sí” o un “no” me alcanza; si prefieres, detalla en una frase.",
-      nuevoEstado: "filtro"
+      respuesta:
+        "Para continuar, respóndeme con sí o no.\n" +
+        "¿Tu centro de trabajo está en Nuevo León?",
+      nuevoEstado: "centro_trabajo_nl"
     };
   }
 
@@ -208,74 +242,32 @@ function generarRespuesta(mensaje, estado) {
     if (pareceNss(msg)) {
       return {
         respuesta:
-          "Dame un segundo mientras lo reviso...\n\n" +
-          "Listo ✅\n" +
-          "Puedes acceder a un monto aproximado para utilizar tu crédito\n" +
-          "¿te explico cómo funciona?",
-        nuevoEstado: "cierre"
+          "Tu monto autorizado es aproximado de $XX,XXX.\n" +
+          "¿En qué día y horario te podemos contactar para darte más detalles?",
+        nuevoEstado: "contacto"
       };
     }
     return {
       respuesta:
-        "Para continuar, compárteme tu NSS (solo números). " +
-        "Si prefieres no hacerlo ahora, dime “después” y lo vemos con calma.",
+        "Para continuar, compárteme tu número de seguridad social (solo números).",
       nuevoEstado: "nss"
     };
   }
 
-  if (e === "cierre") {
-    if (esAfirmativo(msg)) {
-      return {
-        respuesta:
-          "Te explico rápido 👇\n" +
-          "Se utiliza directamente y el pago se descuenta poco a poco\n" +
-          "¿te gustaría avanzar con el proceso?",
-        nuevoEstado: "cierre_propuesta"
-      };
-    }
-    if (esNegativo(msg)) {
-      return {
-        respuesta:
-          "Perfecto, sin presión 🙂 Si quieres retomarlo, escríbeme cuando te quede bien.",
-        nuevoEstado: "terminado"
-      };
-    }
+  if (e === "contacto") {
     return {
       respuesta:
-        "¿Te late que te explique en 2 minutos cómo se usa y cómo se paga, sin compromiso?",
-      nuevoEstado: "cierre"
-    };
-  }
-
-  if (e === "cierre_propuesta") {
-    if (esAfirmativo(msg)) {
-      return {
-        respuesta:
-          "Perfecto 🙌 Con gusto te acompaño en el siguiente paso.\n" +
-          "Te voy indicando por aquí lo que sigue, con calma y sin compromiso.",
-        nuevoEstado: "terminado"
-      };
-    }
-    if (esNegativo(msg)) {
-      return {
-        respuesta:
-          "Va, lo dejamos aquí sin compromiso 🙂 Cuando quieras retomarlo, escríbeme “hola”.",
-        nuevoEstado: "terminado"
-      };
-    }
-    return {
-      respuesta:
-        "¿Te gustaría avanzar con el proceso? Puedes decirme “sí” o “no” y te guío con calma.",
-      nuevoEstado: "cierre_propuesta"
+        "Perfecto, gracias. Con esa información te contactamos para continuar.",
+      nuevoEstado: "terminado"
     };
   }
 
   // fallback
   return {
     respuesta:
-      "Hola 👋 vi que te interesa el crédito Mejoravit\n" +
-      "¿quieres que revise si puedes utilizarlo?",
-    nuevoEstado: "interes"
+      "Buenas tardes, gracias por contactarnos.\n" +
+      "¿Actualmente tienes una relación laboral vigente en Nuevo León?",
+    nuevoEstado: "relacion_laboral"
   };
 }
 
