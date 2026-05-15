@@ -23,7 +23,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     return new Response("Bad Request", { status: 400 });
   }
 
-  console.log("[WhatsApp webhook POST]", JSON.stringify(payload, null, 2));
+  console.log("[WEBHOOK_DEBUG] payload completo (Meta):", JSON.stringify(payload, null, 2));
 
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -40,11 +40,15 @@ export async function POST(req: NextRequest): Promise<Response> {
 
     const mensajes = extraerTextosEntrantes(payload);
     for (const m of mensajes) {
+      console.log("[WEBHOOK_DEBUG] from extraído (parseWhatsAppWebhook):", m.from);
+
       const reply = procesarYEvolucionar({
         phone: m.from,
         textoUsuario: m.body,
       });
       if (!reply) continue;
+
+      console.log("[WEBHOOK_DEBUG] to usado en Graph (enviarMensajeTextoWa):", m.from);
 
       const envio = await enviarMensajeTextoWa({
         phoneNumberId,
