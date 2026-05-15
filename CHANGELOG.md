@@ -2,10 +2,20 @@
 
 ## [Sin versión semver] — 2026-05-15
 
-- Añade Next.js (App Router): webhook en `POST|GET /api/webhook`.
-- Variables `WHATSAPP_*` documentadas en `.env.example`; secretos locales en `.env.local` (ignorado por Git).
-- Pruebas con Vitest para verificación Meta `hub.*` GET.
-- Ajusta el flujo de precalificación en `generarRespuesta.js` con validaciones por etapas:
-  relación laboral vigente en Nuevo León, alta en INFONAVIT, crédito activo y centro de trabajo en Nuevo León.
-- Se agregan respuestas de corte cuando el usuario responde "no" en requisitos obligatorios.
-- Nuevo test `lib/generarRespuestaFlujo.test.ts` cubriendo camino feliz y cortes de elegibilidad.
+### Cambio actual
+
+- **Estado conversacional sólo en memoria:** `lib/conversationMemory.ts` (`Map` global por proceso). Confirmación sí → `console.log` con `{ phone, name, nss }` y mensaje fin al usuario.
+- **Eliminación de Supabase:** dependencia `@supabase/supabase-js`, `lib/supabaseAdmin.ts` y variables `SUPABASE_*` retiradas.
+- Script `npm run next:build` → alias de `next build`.
+
+### Previo — migración sólo Next (Supabase desde entonces revertido aquí)
+
+- Webhook WhatsApp en `/api/webhook` con flujo nombre → NSS → confirmación.
+
+### Previo más antiguo
+
+- Migración inicial **solo Next.js** (sin Express); pruebas Vitest para GET Meta (`hub.*`).
+
+### Eliminado (época Express)
+
+- Servidor Express (`index.js`), `generarRespuesta.js`, vistas estáticas y JSON locales de leads/usuarios.

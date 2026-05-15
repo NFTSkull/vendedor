@@ -1,33 +1,46 @@
-## WhatsApp Webhook (Express)
+# Vendedor Mejoravit (Next.js)
 
-### Requisitos
-- Node.js 18+ (recomendado)
+Servidor **Next.js** con webhook WhatsApp Cloud API en `POST|GET /api/webhook`.
 
-### Instalación
+La conversación se mantiene en un **`Map` en memoria** por proceso (`lib/conversationMemory.ts`). En Vercel/serverless el estado puede resetearse en cold starts y no está compartido entre instancias.
+
+## Requisitos
+
+- Node.js 18+
+- Cuenta [Meta for Developers](https://developers.facebook.com/) con WhatsApp Cloud API
+
+## Variables de entorno
+
+Copiar `.env.example` a `.env.local` en local; en **Vercel** definir las mismas claves.
+
+| Variable | Uso |
+|----------|-----|
+| `WHATSAPP_VERIFY_TOKEN` | Verificación GET del webhook (Meta) |
+| `WHATSAPP_ACCESS_TOKEN` | Bearer token para enviar mensajes (Graph) |
+| `WHATSAPP_PHONE_NUMBER_ID` | ID del número en Graph |
+| `WHATSAPP_GRAPH_API_VERSION` | Opcional; por defecto `lib/whatsappCloud.ts` usa `v19.0` |
+
+## Desarrollo
+
 ```bash
 npm install
-```
-
-### Variables de entorno
-```bash
-cp .env.example .env
-```
-Edita `.env` y define:
-- `VERIFY_TOKEN`
-- `WHATSAPP_ACCESS_TOKEN`
-- `WHATSAPP_PHONE_NUMBER_ID`
-
-### Correr el servidor
-```bash
-npm start
-```
-
-Opcional (modo watch):
-```bash
 npm run dev
 ```
 
-### Verificación (GET /webhook)
-Meta llamará algo como:
-`/webhook?hub.mode=subscribe&hub.verify_token=TU_TOKEN&hub.challenge=123`
+Webhook local: túnel (ngrok/etc.) → `http://localhost:3000`; en Meta registra **`https://<tu-host>/api/webhook`**.
 
+## Producción
+
+- Framework: **Next.js**
+- Callback URL en Meta: `https://<dominio>/api/webhook`
+
+```bash
+npm run build
+npm run start
+```
+
+## Pruebas y calidad
+
+```bash
+npm run lint && npm run typecheck && npm test && npm run next:build
+```

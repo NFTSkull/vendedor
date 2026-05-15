@@ -1,22 +1,18 @@
 {
-  "name": "whatsapp-webhook-express",
-  "version": "1.0.0",
+  "name": "vendedor-mejoravit-web",
+  "version": "2.0.0",
   "private": true,
-  "description": "Webhook básico para WhatsApp Business API (Cloud API) con Express",
-  "main": "index.js",
+  "description": "Webhook WhatsApp Cloud API y flujo de conversación (Next.js)",
   "scripts": {
-    "start": "node index.js",
-    "dev": "node --watch index.js",
-    "next:dev": "next dev",
+    "dev": "next dev",
+    "build": "next build",
     "next:build": "next build",
-    "next:start": "next start",
+    "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "dotenv": "^16.6.1",
-    "express": "^4.21.2",
     "next": "^15.3.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
@@ -29,6 +25,6 @@
     "eslint": "^9.27.0",
     "eslint-config-next": "^15.3.3",
     "typescript": "^5.8.3",
-    "vitest": "^3.2.2"
+    "vitest": "^3.2.4"
   }
 }
