@@ -56,7 +56,7 @@ const MSG_RECHAZO_CENTRO_TRABAJO =
   "Actualmente este apoyo está disponible solo para Nuevo León.";
 
 const MSG_SOLICITUD_DATOS =
-  "Compárteme tu nombre de seguro social para darte el monto autorizado.";
+  "Compárteme tu Número de Seguro Social (NSS) para darte el monto autorizado.";
 
 const MSG_MONTO_Y_HORARIO =
   "Tu monto autorizado es aproximadamente de ___\n\n" +
@@ -109,18 +109,10 @@ function responderSiNo(
   return reintento;
 }
 
-function extraerNombreYNss(texto: string): { nombre: string; nss: string } | null {
+function extraerNss(texto: string): string | null {
   const nss = extraerNssOnceDigitos(texto);
   if (!nss) return null;
-
-  const nssPattern = nss.split("").join("\\D*");
-  const nombre = texto
-    .replace(new RegExp(nssPattern), " ")
-    .replace(/\d/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return { nombre: nombre || "No indicado", nss };
+  return nss;
 }
 
 /**
@@ -196,24 +188,24 @@ export function procesarYEvolucionar(args: {
         ) ?? MSG_CENTRO_TRABAJO
       );
     case "esperando_datos": {
-      const datos = extraerNombreYNss(texto);
-      if (!datos) {
+      const nss = extraerNss(texto);
+      if (!nss) {
         return (
           "Necesito un número de seguro social (IMSS) de 11 dígitos. " +
           "Intenta de nuevo.\n\n" +
           MSG_SOLICITUD_DATOS
         );
       }
-      guardar(phone, "esperando_horario", datos.nombre, datos.nss);
+      guardar(phone, "esperando_horario", null, nss);
       console.log("[lead confirmado]", {
         phone,
-        name: datos.nombre,
-        nss: datos.nss,
+        name: null,
+        nss,
       });
       return MSG_MONTO_Y_HORARIO;
     }
     case "esperando_horario": {
-      if (!prev.name || !prev.nss) {
+      if (!prev.nss) {
         return iniciarCycle(phone);
       }
       console.log("[lead horario]", {

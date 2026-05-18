@@ -9,7 +9,7 @@ const FLUJO_SI = [
   "SI",
   "no",
   "si",
-  "María García 12345678901",
+  "12345678901",
   "Martes 10am",
 ] as const;
 
@@ -32,12 +32,12 @@ describe("botSteps memoria Map", () => {
 
     expect(logSpy).toHaveBeenCalledWith("[lead confirmado]", {
       phone: p,
-      name: "María García",
+      name: null,
       nss: "12345678901",
     });
     expect(logSpy).toHaveBeenCalledWith("[lead horario]", {
       phone: p,
-      name: "María García",
+      name: null,
       nss: "12345678901",
       horario: "Martes 10am",
     });
@@ -55,7 +55,7 @@ describe("botSteps memoria Map", () => {
 
     const reply = procesarYEvolucionar({
       phone: p,
-      textoUsuario: "Pedro León 09876543210",
+      textoUsuario: "09876543210",
     });
 
     expect(reply).toContain("aproximadamente de ___");
