@@ -10,8 +10,6 @@ const FLUJO_SI = [
   "no",
   "si",
   "María García 12345678901",
-  "ok",
-  "sí",
   "Martes 10am",
 ] as const;
 
@@ -47,7 +45,7 @@ describe("botSteps memoria Map", () => {
     logSpy.mockRestore();
   });
 
-  it("muestra monto con línea en blanco, sin cantidad fija", () => {
+  it("muestra monto con línea en blanco y pregunta horario, sin cantidad fija", () => {
     const p = "5233333333333";
     procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
     procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
@@ -55,15 +53,16 @@ describe("botSteps memoria Map", () => {
     procesarYEvolucionar({ phone: p, textoUsuario: "No" });
     procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
 
-    let reply = procesarYEvolucionar({
+    const reply = procesarYEvolucionar({
       phone: p,
       textoUsuario: "Pedro León 09876543210",
     });
-    expect(reply).toContain("__________");
 
-    reply = procesarYEvolucionar({ phone: p, textoUsuario: "listo" });
+    expect(reply).toContain("aproximadamente de ___");
+    expect(reply).toContain("día y horario");
     expect(reply).not.toMatch(/\$169,?000/);
     expect(reply).not.toMatch(/MXN/);
+    expect(reply).not.toContain("puede variar");
   });
 
   it("rechaza sin relación laboral vigente", () => {
@@ -85,22 +84,5 @@ describe("botSteps memoria Map", () => {
     const reply = procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
 
     expect(reply).toContain("termines de pagar tu crédito Infonavit");
-  });
-
-  it("interés No cierra conversación amablemente", () => {
-    const p = "5266666666666";
-    procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
-    procesarYEvolucionar({ phone: p, textoUsuario: "si" });
-    procesarYEvolucionar({ phone: p, textoUsuario: "si" });
-    procesarYEvolucionar({ phone: p, textoUsuario: "no" });
-    procesarYEvolucionar({ phone: p, textoUsuario: "si" });
-    procesarYEvolucionar({
-      phone: p,
-      textoUsuario: "Ana López 11111111111",
-    });
-    procesarYEvolucionar({ phone: p, textoUsuario: "vale" });
-    const reply = procesarYEvolucionar({ phone: p, textoUsuario: "NO" });
-
-    expect(reply).toContain("Entendido, gracias por contactarnos");
   });
 });

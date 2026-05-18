@@ -9,8 +9,6 @@ export type BotState =
   | "esperando_credito_activo"
   | "esperando_centro_trabajo"
   | "esperando_datos"
-  | "post_monto"
-  | "esperando_interes"
   | "esperando_horario"
   | "finalizado";
 
@@ -54,27 +52,11 @@ const MSG_RECHAZO_CENTRO_TRABAJO =
   "Actualmente este apoyo está disponible solo para Nuevo León.";
 
 const MSG_SOLICITUD_DATOS =
-  "Perfecto.\n\n" +
-  "Compárteme tu nombre completo y tu Número de Seguro Social para revisar tu monto autorizado aproximado.";
+  "Compárteme tu nombre de seguro social para darte el monto autorizado.";
 
-const MSG_MONTO_APROXIMADO =
-  "Gracias.\n\n" +
-  "Tu monto autorizado aproximado es de: __________\n\n" +
-  "Este monto puede variar según la validación final de tu información.";
-
-const MSG_INTERES =
-  "¿Te interesa continuar con el trámite?\n\n" +
-  "Responde:\n" +
-  "Sí\n" +
-  "No";
-
-const MSG_RECHAZO_INTERES =
-  "Entendido, gracias por contactarnos.\n\n" +
-  "Si más adelante deseas revisar tu crédito autorizado, puedes escribirnos nuevamente.";
-
-const MSG_HORARIO =
-  "Excelente.\n\n" +
-  "¿En qué día y horario te podemos contactar para darte más detalles de tu trámite?";
+const MSG_MONTO_Y_HORARIO =
+  "Tu monto autorizado es aproximadamente de ___\n\n" +
+  "¿En qué día y horario te podemos contactar para darte más detalles?";
 
 const MSG_FINAL =
   "Gracias. Un asesor se pondrá en contacto contigo en el horario que nos indicaste.\n\n" +
@@ -212,30 +194,14 @@ export function procesarYEvolucionar(args: {
           MSG_SOLICITUD_DATOS
         );
       }
-      guardar(phone, "post_monto", datos.nombre, datos.nss);
+      guardar(phone, "esperando_horario", datos.nombre, datos.nss);
       console.log("[lead confirmado]", {
         phone,
         name: datos.nombre,
         nss: datos.nss,
       });
-      return MSG_MONTO_APROXIMADO;
+      return MSG_MONTO_Y_HORARIO;
     }
-    case "post_monto": {
-      guardar(phone, "esperando_interes", prev.name, prev.nss);
-      return MSG_INTERES;
-    }
-    case "esperando_interes":
-      return (
-        responderSiNo(
-          texto,
-          () => {
-            guardar(phone, "esperando_horario", prev.name, prev.nss);
-            return MSG_HORARIO;
-          },
-          () => rechazar(phone, MSG_RECHAZO_INTERES),
-          MSG_INTERES,
-        ) ?? MSG_INTERES
-      );
     case "esperando_horario": {
       if (!prev.name || !prev.nss) {
         return iniciarCycle(phone);
