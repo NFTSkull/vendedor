@@ -113,13 +113,14 @@ function extraerNombreYNss(texto: string): { nombre: string; nss: string } | nul
   const nss = extraerNssOnceDigitos(texto);
   if (!nss) return null;
 
+  const nssPattern = nss.split("").join("\\D*");
   const nombre = texto
+    .replace(new RegExp(nssPattern), " ")
     .replace(/\d/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
-  if (!nombre) return null;
-  return { nombre, nss };
+  return { nombre: nombre || "No indicado", nss };
 }
 
 /**
@@ -198,7 +199,7 @@ export function procesarYEvolucionar(args: {
       const datos = extraerNombreYNss(texto);
       if (!datos) {
         return (
-          "Necesito tu nombre completo y un Número de Seguro Social de 11 dígitos. " +
+          "Necesito un número de seguro social (IMSS) de 11 dígitos. " +
           "Intenta de nuevo.\n\n" +
           MSG_SOLICITUD_DATOS
         );

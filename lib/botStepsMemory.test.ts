@@ -102,6 +102,23 @@ describe("botSteps memoria Map", () => {
     },
   );
 
+  it("acepta solo NSS de 11 dígitos sin nombre", () => {
+    const p = "5299999999999";
+    procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+    procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    procesarYEvolucionar({ phone: p, textoUsuario: "No" });
+    procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+
+    const reply = procesarYEvolucionar({
+      phone: p,
+      textoUsuario: "01234567890",
+    });
+
+    expect(reply).toContain("aproximadamente de ___");
+    expect(conversationMemory.get(p)?.nss).toBe("01234567890");
+  });
+
   it("rechaza crédito Infonavit activo", () => {
     const p = "5255555555555";
     procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });

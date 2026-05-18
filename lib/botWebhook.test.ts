@@ -10,9 +10,15 @@ describe("extraerNssOnceDigitos", () => {
   it("limpia caracteres no numéricos", () => {
     expect(extraerNssOnceDigitos("123-456-789-01")).toBe("12345678901");
   });
-  it("rechaza longitud distinta", () => {
+  it("rechaza si no hay ningún bloque de 11 dígitos", () => {
     expect(extraerNssOnceDigitos("1234567890")).toBeNull();
-    expect(extraerNssOnceDigitos("123456789012")).toBeNull();
+  });
+
+  it("toma el primer bloque de 11 dígitos si hay más números en el texto", () => {
+    expect(extraerNssOnceDigitos("123456789012")).toBe("12345678901");
+    expect(
+      extraerNssOnceDigitos("Juan Pérez 5512345678901 12345678901"),
+    ).toBe("12345678901");
   });
 });
 
