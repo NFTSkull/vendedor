@@ -1,8 +1,13 @@
 export type BotRuntimeState =
   | "inicio"
-  | "esperando_nombre"
-  | "esperando_nss"
-  | "confirmando"
+  | "esperando_labor_vigente"
+  | "esperando_infonavit"
+  | "esperando_credito_activo"
+  | "esperando_centro_trabajo"
+  | "esperando_datos"
+  | "post_monto"
+  | "esperando_interes"
+  | "esperando_horario"
   | "finalizado";
 
 /** Estado en memoria por número WhatsApp dentro del mismo proceso Node. */
