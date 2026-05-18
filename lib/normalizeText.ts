@@ -21,3 +21,14 @@ export function esNegativo(texto: string): boolean {
   if (n.includes("mejor no") || n.includes("no es")) return true;
   return false;
 }
+
+const COMANDOS_REINICIO = new Set([
+  "reiniciar",
+  "empezar de nuevo",
+  "iniciar de nuevo",
+]);
+
+export function esComandoReinicio(texto: string): boolean {
+  const n = normalizarTexto(texto);
+  return COMANDOS_REINICIO.has(n);
+}

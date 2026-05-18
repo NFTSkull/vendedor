@@ -76,6 +76,32 @@ describe("botSteps memoria Map", () => {
     );
   });
 
+  it("reinicia el flujo con comando reiniciar en cualquier paso", () => {
+    const p = "5277777777777";
+    procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+    procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+
+    const reply = procesarYEvolucionar({ phone: p, textoUsuario: "REINICIAR" });
+
+    expect(reply).toContain("Buenas tardes, gracias por contactarnos");
+    expect(reply).toContain("relación laboral vigente en Nuevo León");
+    expect(conversationMemory.get(p)?.state).toBe("esperando_labor_vigente");
+    expect(conversationMemory.get(p)?.name).toBeNull();
+    expect(conversationMemory.get(p)?.nss).toBeNull();
+  });
+
+  it.each(["reiniciar", "Reiniciar", "empezar de nuevo", "iniciar de nuevo"])(
+    "acepta comando de reinicio: %s",
+    (comando) => {
+      const p = "5288888888888";
+      procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+      procesarYEvolucionar({ phone: p, textoUsuario: comando });
+
+      expect(conversationMemory.get(p)?.state).toBe("esperando_labor_vigente");
+    },
+  );
+
   it("rechaza crédito Infonavit activo", () => {
     const p = "5255555555555";
     procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });

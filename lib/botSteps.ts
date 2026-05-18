@@ -1,6 +1,10 @@
 import { conversationMemory } from "@/lib/conversationMemory";
 import { extraerNssOnceDigitos } from "@/lib/nss";
-import { esAfirmativo, esNegativo } from "@/lib/normalizeText";
+import {
+  esAfirmativo,
+  esComandoReinicio,
+  esNegativo,
+} from "@/lib/normalizeText";
 
 export type BotState =
   | "inicio"
@@ -129,6 +133,11 @@ export function procesarYEvolucionar(args: {
   if (!texto) return null;
 
   const phone = args.phone;
+
+  if (esComandoReinicio(texto)) {
+    return reiniciarFlujoUsuario(phone);
+  }
+
   const prev = snapshotInicial(phone);
 
   switch (prev.state) {
@@ -220,7 +229,12 @@ export function procesarYEvolucionar(args: {
   }
 }
 
-function iniciarCycle(phone: string): string {
+function reiniciarFlujoUsuario(phone: string): string {
+  conversationMemory.delete(phone);
   guardar(phone, "esperando_labor_vigente", null, null);
   return MSG_BIENVENIDA;
+}
+
+function iniciarCycle(phone: string): string {
+  return reiniciarFlujoUsuario(phone);
 }
