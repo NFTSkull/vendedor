@@ -16,6 +16,11 @@ export async function GET(req: NextRequest): Promise<Response> {
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
+  console.log(
+    "[DEBUG] ANTHROPIC_API_KEY disponible:",
+    Boolean(process.env.ANTHROPIC_API_KEY),
+  );
+
   let payload: unknown;
   try {
     payload = await req.json();

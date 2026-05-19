@@ -84,11 +84,7 @@ export async function procesarYEvolucionar(args: {
 
   let entrada: EntradaInterpretada | undefined;
 
-  if (
-    claudeDisponible() &&
-    state !== "inicio" &&
-    state !== "finalizado"
-  ) {
+  if (claudeDisponible() && state !== "finalizado") {
     const interp = await interpretarRespuestaUsuario({
       phone,
       state: statePregunta,

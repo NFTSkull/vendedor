@@ -65,6 +65,10 @@ type HistorialMsg = { role: "user" | "assistant"; content: string };
 const historialClaude = new Map<string, HistorialMsg[]>();
 
 function clienteAnthropic(): Anthropic | null {
+  console.log(
+    "[Claude] API key disponible:",
+    Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
+  );
   const key = process.env.ANTHROPIC_API_KEY?.trim();
   if (!key) return null;
   return new Anthropic({ apiKey: key });
