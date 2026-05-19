@@ -42,7 +42,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     for (const m of mensajes) {
       console.log("[WEBHOOK_DEBUG] from extraído (parseWhatsAppWebhook):", m.from);
 
-      const reply = procesarYEvolucionar({
+      const reply = await procesarYEvolucionar({
         phone: m.from,
         textoUsuario: m.body,
       });

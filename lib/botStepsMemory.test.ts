@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { procesarYEvolucionar } from "@/lib/botSteps";
 import { conversationMemory } from "@/lib/conversationMemory";
@@ -14,16 +14,20 @@ const FLUJO_SI = [
 ] as const;
 
 describe("botSteps memoria Map", () => {
+  beforeEach(() => {
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+
   afterEach(() => conversationMemory.clear());
 
-  it("flujo completo hasta cierre con asesor y logea lead", () => {
+  it("flujo completo hasta cierre con asesor y logea lead", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     const p = "5211111111111";
     let reply: string | null = null;
 
     for (const paso of FLUJO_SI) {
-      reply = procesarYEvolucionar({ phone: p, textoUsuario: paso });
+      reply = await procesarYEvolucionar({ phone: p, textoUsuario: paso });
       expect(reply).toBeTruthy();
     }
 
@@ -45,15 +49,15 @@ describe("botSteps memoria Map", () => {
     logSpy.mockRestore();
   });
 
-  it("muestra monto con línea en blanco y pregunta horario, sin cantidad fija", () => {
+  it("muestra monto con línea en blanco y pregunta horario, sin cantidad fija", async () => {
     const p = "5233333333333";
-    procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
-    procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
-    procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
-    procesarYEvolucionar({ phone: p, textoUsuario: "No" });
-    procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
 
-    const reply = procesarYEvolucionar({
+    const reply = await procesarYEvolucionar({
       phone: p,
       textoUsuario: "09876543210",
     });
@@ -65,10 +69,10 @@ describe("botSteps memoria Map", () => {
     expect(reply).not.toContain("puede variar");
   });
 
-  it("rechaza sin relación laboral vigente", () => {
+  it("rechaza sin relación laboral vigente", async () => {
     const p = "5244444444444";
-    procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
-    const reply = procesarYEvolucionar({ phone: p, textoUsuario: "no" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+    const reply = await procesarYEvolucionar({ phone: p, textoUsuario: "no" });
 
     expect(reply).toContain("relación laboral vigente en Nuevo León");
     expect(reply).not.toContain(
@@ -76,13 +80,16 @@ describe("botSteps memoria Map", () => {
     );
   });
 
-  it("reinicia el flujo con comando reiniciar en cualquier paso", () => {
+  it("reinicia el flujo con comando reiniciar en cualquier paso", async () => {
     const p = "5277777777777";
-    procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
-    procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
-    procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
 
-    const reply = procesarYEvolucionar({ phone: p, textoUsuario: "REINICIAR" });
+    const reply = await procesarYEvolucionar({
+      phone: p,
+      textoUsuario: "REINICIAR",
+    });
 
     expect(reply).toContain("Buenas tardes, gracias por contactarnos");
     expect(reply).toContain("relación laboral vigente en Nuevo León");
@@ -93,24 +100,24 @@ describe("botSteps memoria Map", () => {
 
   it.each(["reiniciar", "Reiniciar", "empezar de nuevo", "iniciar de nuevo"])(
     "acepta comando de reinicio: %s",
-    (comando) => {
+    async (comando) => {
       const p = "5288888888888";
-      procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
-      procesarYEvolucionar({ phone: p, textoUsuario: comando });
+      await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+      await procesarYEvolucionar({ phone: p, textoUsuario: comando });
 
       expect(conversationMemory.get(p)?.state).toBe("esperando_labor_vigente");
     },
   );
 
-  it("acepta solo NSS de 11 dígitos sin nombre", () => {
+  it("acepta solo NSS de 11 dígitos sin nombre", async () => {
     const p = "5299999999999";
-    procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
-    procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
-    procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
-    procesarYEvolucionar({ phone: p, textoUsuario: "No" });
-    procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
 
-    const reply = procesarYEvolucionar({
+    const reply = await procesarYEvolucionar({
       phone: p,
       textoUsuario: "01234567890",
     });
@@ -119,12 +126,12 @@ describe("botSteps memoria Map", () => {
     expect(conversationMemory.get(p)?.nss).toBe("01234567890");
   });
 
-  it("rechaza crédito Infonavit activo", () => {
+  it("rechaza crédito Infonavit activo", async () => {
     const p = "5255555555555";
-    procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
-    procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
-    procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
-    const reply = procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    const reply = await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
 
     expect(reply).toContain("termines de pagar tu crédito Infonavit");
   });
