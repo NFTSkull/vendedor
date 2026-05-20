@@ -1,8 +1,14 @@
 # Changelog
 
-## [Sin versión semver] — 2026-05-18
+## [Sin versión semver] — 2026-05-19
 
 ### Cambio actual
+
+- **Bloque 2 CRM:** Supabase (`leads`, `advisors`, `lead_actions`), persistencia al cerrar horario, endpoints `/api/crm/login`, `/api/crm/leads`, `/api/crm/leads/[id]` con JWT (`CRM_JWT_SECRET`).
+
+## [Sin versión semver] — 2026-05-18
+
+### Cambio actual (histórico)
 
 - **Claude (Anthropic) opcional:** capa en `lib/claudeAssistant.ts` para interpretar respuestas ambiguas o fuera de tema y naturalizar mensajes de transición; la máquina de estados vive en `lib/botStepsCore.ts`. Variable `ANTHROPIC_API_KEY`. Rechazos y cierre final siguen con texto exacto; logs `[lead confirmado]` / `[lead horario]` intactos.
 

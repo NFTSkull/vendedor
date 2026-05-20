@@ -3,6 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { procesarYEvolucionar } from "@/lib/botSteps";
 import { conversationMemory } from "@/lib/conversationMemory";
 
+vi.mock("@/lib/supabaseAdmin", () => ({
+  getSupabaseAdmin: () => ({
+    from: () => ({
+      insert: vi.fn().mockResolvedValue({ error: null }),
+    }),
+  }),
+}));
+
 const FLUJO_SI = [
   "Hola",
   "si",
@@ -16,6 +24,8 @@ const FLUJO_SI = [
 describe("botSteps memoria Map", () => {
   beforeEach(() => {
     delete process.env.ANTHROPIC_API_KEY;
+    process.env.SUPABASE_URL = "https://example.supabase.co";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role";
   });
 
   afterEach(() => conversationMemory.clear());
@@ -39,9 +49,8 @@ describe("botSteps memoria Map", () => {
       name: null,
       nss: "12345678901",
     });
-    expect(logSpy).toHaveBeenCalledWith("[lead horario]", {
+    expect(logSpy).toHaveBeenCalledWith("[Supabase] Lead guardado:", {
       phone: p,
-      name: null,
       nss: "12345678901",
       horario: "Martes 10am",
     });

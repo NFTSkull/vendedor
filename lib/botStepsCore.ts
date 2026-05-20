@@ -1,6 +1,7 @@
 import { conversationMemory } from "@/lib/conversationMemory";
 import { extraerNssOnceDigitos } from "@/lib/nss";
 import { esAfirmativo, esComandoReinicio, esNegativo } from "@/lib/normalizeText";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type BotState =
   | "inicio"
@@ -146,6 +147,20 @@ function responderSiNoCore(
   return reintento;
 }
 
+async function guardarLead(phone: string, nss: string, horario: string) {
+  try {
+    const supabase = getSupabaseAdmin();
+    const { error } = await supabase
+      .from("leads")
+      .insert({ whatsapp_phone: phone, nss, horario, estado: "nuevo" });
+
+    if (error) console.error("[Supabase] Error guardando lead:", error);
+    else console.log("[Supabase] Lead guardado:", { phone, nss, horario });
+  } catch (err) {
+    console.error("[Supabase] Error:", err);
+  }
+}
+
 export function reiniciarFlujoCore(phone: string): ResultadoPaso {
   conversationMemory.delete(phone);
   conversationMemory.set(phone, {
@@ -156,11 +171,11 @@ export function reiniciarFlujoCore(phone: string): ResultadoPaso {
   return transicion(MSG_BIENVENIDA);
 }
 
-export function ejecutarPasoCore(args: {
+export async function ejecutarPasoCore(args: {
   phone: string;
   textoUsuario: string;
   entrada?: EntradaInterpretada;
-}): ResultadoPaso {
+}): Promise<ResultadoPaso> {
   const texto = args.textoUsuario.trim();
   const phone = args.phone;
   const entrada = args.entrada;
@@ -269,12 +284,8 @@ export function ejecutarPasoCore(args: {
             MSG_MONTO_Y_HORARIO,
         );
       }
-      console.log("[lead horario]", {
-        phone,
-        name: row.name,
-        nss: row.nss,
-        horario: texto,
-      });
+      await guardarLead(phone, row.nss, texto);
+
       conversationMemory.set(phone, {
         state: "finalizado",
         name: null,

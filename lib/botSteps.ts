@@ -112,7 +112,7 @@ export async function procesarYEvolucionar(args: {
     }
   }
 
-  const resultado = ejecutarPasoCore({
+  const resultado = await ejecutarPasoCore({
     phone,
     textoUsuario: texto,
     entrada,
