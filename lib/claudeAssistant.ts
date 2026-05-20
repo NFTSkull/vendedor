@@ -39,7 +39,9 @@ REGLAS IMPORTANTES:
 - Máximo 2-3 líneas por mensaje (es WhatsApp)
 - Nunca inventes montos, fechas ni datos de Infonavit
 - Si no entiendes la respuesta, pide que aclare amablemente
-- Nunca repitas la misma pregunta más de 2 veces seguidas`;
+- Nunca repitas la misma pregunta más de 2 veces seguidas
+- IMPORTANTE: Nunca uses emojis en ningún mensaje.
+  Responde siempre en texto plano sin símbolos especiales.`;
 
 const MODELO = "claude-haiku-4-5-20251001";
 const MAX_HISTORIAL = 12;

@@ -20,38 +20,26 @@ export type ResultadoPaso = {
 
 export const MSG_BIENVENIDA =
   "Buenas tardes, gracias por contactarnos.\n\n" +
-  "¿Actualmente tienes una relación laboral vigente en Nuevo León?\n\n" +
-  "Responde:\n" +
-  "Sí\n" +
-  "No";
+  "¿Actualmente tienes una relación laboral vigente en Nuevo León?";
 
 export const MSG_RECHAZO_LABOR =
   "Lo sentimos, este es un requisito indispensable para obtener el crédito.\n\n" +
   "Por el momento solo podemos continuar con personas que tengan una relación laboral vigente en Nuevo León.";
 
 export const MSG_INFONAVIT =
-  "¿Actualmente estás dado de alta en Infonavit?\n\n" +
-  "Responde:\n" +
-  "Sí\n" +
-  "No";
+  "¿Actualmente estás dado de alta en Infonavit?";
 
 export const MSG_RECHAZO_INFONAVIT =
   "Lo sentimos, estar dado de alta en Infonavit es un requisito indispensable para obtener el crédito.";
 
 export const MSG_CREDITO_ACTIVO =
-  "¿Tienes un crédito Infonavit activo?\n\n" +
-  "Responde:\n" +
-  "Sí\n" +
-  "No";
+  "¿Tienes un crédito Infonavit activo?";
 
 export const MSG_RECHAZO_CREDITO_ACTIVO =
   "Es necesario que termines de pagar tu crédito Infonavit actual para poder continuar con este trámite.";
 
 export const MSG_CENTRO_TRABAJO =
-  "¿Tu centro de trabajo está en Nuevo León?\n\n" +
-  "Responde:\n" +
-  "Sí\n" +
-  "No";
+  "¿Tu centro de trabajo está en Nuevo León?";
 
 export const MSG_RECHAZO_CENTRO_TRABAJO =
   "Lo sentimos, este es un requisito indispensable para obtener el crédito.\n\n" +
