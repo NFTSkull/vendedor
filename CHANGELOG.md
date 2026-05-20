@@ -1,5 +1,11 @@
 # Changelog
 
+## [Sin versión semver] — 2026-05-20
+
+### Cambio actual
+
+- **Bloque 3 CRM visual:** panel web para asesores con Tailwind (`/crm/login`, `/crm/leads`, `/crm/leads/[id]`), autenticación por token en `localStorage`, listado responsive (tabla/card), badges de estado y acciones para marcar leads como `contactado` o `no_interesado`.
+
 ## [Sin versión semver] — 2026-05-19
 
 ### Cambio actual
