@@ -1,6 +1,11 @@
 import type { NextRequest } from "next/server";
 
 import { procesarYEvolucionar } from "@/lib/botSteps";
+import {
+  buscarLeadPorTelefono,
+  guardarMensaje,
+  leadEnModoChat,
+} from "@/lib/messagesDb";
 import { getMetaWebhookVerificationResponse } from "@/lib/metaWebhookVerification";
 import { extraerTextosEntrantes } from "@/lib/parseWhatsAppWebhook";
 import { enviarMensajeTextoWa } from "@/lib/whatsappCloud";
@@ -44,8 +49,27 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
 
     const mensajes = extraerTextosEntrantes(payload);
+
     for (const m of mensajes) {
       console.log("[WEBHOOK_DEBUG] from extraído (parseWhatsAppWebhook):", m.from);
+
+      let leadChat = null;
+      try {
+        leadChat = await buscarLeadPorTelefono(m.from);
+        if (leadChat && leadEnModoChat(leadChat.estado)) {
+          await guardarMensaje({
+            leadId: leadChat.id,
+            direccion: "entrante",
+            contenido: m.body,
+          });
+        }
+      } catch (err) {
+        console.error("[webhook] Error guardando mensaje entrante:", err);
+      }
+
+      if (leadChat?.estado === "contactado") {
+        continue;
+      }
 
       const reply = await procesarYEvolucionar({
         phone: m.from,
