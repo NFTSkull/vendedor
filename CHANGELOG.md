@@ -4,6 +4,8 @@
 
 ### Cambio actual
 
+- **Flujo del bot:** mensajes del embudo se envían exactos (sin naturalización Claude); Claude solo para fuera de tema, tono profesional y retomo con texto literal de la pregunta.
+
 - **Copy del bot:** se quitaron las líneas «Responde: Sí / No» de las preguntas de precalificación; Claude instruido para no usar emojis ni símbolos especiales.
 
 - **Bloque 4 Chat CRM:** tabla `messages`, API `GET/POST /api/crm/leads/[id]/messages`, historial en detalle de lead con poll 10s, envío por WhatsApp Cloud API; webhook guarda entrantes y silencia el bot cuando el lead está `contactado`; chat habilitado en UI para `contactado` y `no_interesado`.

@@ -108,10 +108,6 @@ function exacto(texto: string): ResultadoPaso {
   return { texto, exacto: true };
 }
 
-function transicion(texto: string): ResultadoPaso {
-  return { texto, exacto: false };
-}
-
 function rechazar(phone: string, mensaje: string): ResultadoPaso {
   conversationMemory.set(phone, {
     state: "finalizado",
@@ -156,7 +152,7 @@ export function reiniciarFlujoCore(phone: string): ResultadoPaso {
     name: null,
     nss: null,
   });
-  return transicion(MSG_BIENVENIDA);
+  return exacto(MSG_BIENVENIDA);
 }
 
 export async function ejecutarPasoCore(args: {
@@ -179,7 +175,7 @@ export async function ejecutarPasoCore(args: {
         name: null,
         nss: null,
       });
-      return transicion(MSG_BIENVENIDA);
+      return exacto(MSG_BIENVENIDA);
     case "esperando_labor_vigente":
       return responderSiNoCore(
         texto,
@@ -190,10 +186,10 @@ export async function ejecutarPasoCore(args: {
             name: null,
             nss: null,
           });
-          return transicion(MSG_INFONAVIT);
+          return exacto(MSG_INFONAVIT);
         },
         () => rechazar(phone, MSG_RECHAZO_LABOR),
-        transicion(MSG_BIENVENIDA),
+        exacto(MSG_BIENVENIDA),
       );
     case "esperando_infonavit":
       return responderSiNoCore(
@@ -205,10 +201,10 @@ export async function ejecutarPasoCore(args: {
             name: null,
             nss: null,
           });
-          return transicion(MSG_CREDITO_ACTIVO);
+          return exacto(MSG_CREDITO_ACTIVO);
         },
         () => rechazar(phone, MSG_RECHAZO_INFONAVIT),
-        transicion(MSG_INFONAVIT),
+        exacto(MSG_INFONAVIT),
       );
     case "esperando_credito_activo":
       return responderSiNoCore(
@@ -221,9 +217,9 @@ export async function ejecutarPasoCore(args: {
             name: null,
             nss: null,
           });
-          return transicion(MSG_CENTRO_TRABAJO);
+          return exacto(MSG_CENTRO_TRABAJO);
         },
-        transicion(MSG_CREDITO_ACTIVO),
+        exacto(MSG_CREDITO_ACTIVO),
       );
     case "esperando_centro_trabajo":
       return responderSiNoCore(
@@ -235,10 +231,10 @@ export async function ejecutarPasoCore(args: {
             name: null,
             nss: null,
           });
-          return transicion(MSG_SOLICITUD_DATOS);
+          return exacto(MSG_SOLICITUD_DATOS);
         },
         () => rechazar(phone, MSG_RECHAZO_CENTRO_TRABAJO),
-        transicion(MSG_CENTRO_TRABAJO),
+        exacto(MSG_CENTRO_TRABAJO),
       );
     case "esperando_datos": {
       const nss =
@@ -246,7 +242,7 @@ export async function ejecutarPasoCore(args: {
           ? entrada.nss
           : extraerNssOnceDigitos(texto);
       if (!nss) {
-        return transicion(MSG_NSS_INVALIDO);
+        return exacto(MSG_NSS_INVALIDO);
       }
       conversationMemory.set(phone, {
         state: "esperando_horario",
@@ -267,7 +263,7 @@ export async function ejecutarPasoCore(args: {
       const horarioValido =
         entrada?.esHorarioValido === true || texto.length >= 3;
       if (!horarioValido) {
-        return transicion(
+        return exacto(
           "¿Me compartes día y horario? Por ejemplo: martes 10 am.\n\n" +
             MSG_MONTO_Y_HORARIO,
         );
