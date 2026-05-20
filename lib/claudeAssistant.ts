@@ -41,7 +41,7 @@ REGLAS IMPORTANTES:
 - Si no entiendes la respuesta, pide que aclare amablemente
 - Nunca repitas la misma pregunta más de 2 veces seguidas`;
 
-const MODELO = "claude-3-5-haiku-latest";
+const MODELO = "claude-haiku-4-5-20251001";
 const MAX_HISTORIAL = 12;
 
 export type InterpretacionTipo =
