@@ -106,17 +106,24 @@ export async function procesarYEvolucionar(args: {
 
   const state = estadoActual;
   const statePregunta = estadoParaPregunta(state);
+  const tipoEsperado = tipoEsperadoDelEstado(state);
   console.log("[FLUJO] estado:", state, "texto:", texto);
 
   let entrada: EntradaInterpretada | undefined;
 
-  if (claudeDisponible() && ESTADOS_CON_CLAUDE.has(state)) {
+  // Solo llamar a Claude si NO es una pregunta de sí/no.
+  // Para sí/no, normalizeText es suficiente y más confiable.
+  if (
+    claudeDisponible() &&
+    ESTADOS_CON_CLAUDE.has(state) &&
+    tipoEsperado !== "si_no"
+  ) {
     const interp = await interpretarRespuestaUsuario({
       phone,
       state: statePregunta,
       textoUsuario: texto,
       preguntaActual: preguntaDelEstado(statePregunta),
-      tipoEsperado: tipoEsperadoDelEstado(statePregunta),
+      tipoEsperado,
     });
     console.log("[FLUJO] interpretacion Claude:", interp?.tipo);
 
@@ -141,6 +148,25 @@ export async function procesarYEvolucionar(args: {
       interp.tipo !== "fuera_tema"
     ) {
       entrada = interpretacionAEntrada(interp);
+    }
+  }
+
+  // Para sí/no: si no lo detecta normalizeText, Claude ayuda
+  // SOLO si el texto es claramente fuera de tema (más de 4 palabras)
+  if (
+    claudeDisponible() &&
+    tipoEsperado === "si_no" &&
+    texto.split(" ").length > 4
+  ) {
+    const interp = await interpretarRespuestaUsuario({
+      phone,
+      state: statePregunta,
+      textoUsuario: texto,
+      preguntaActual: preguntaDelEstado(statePregunta),
+      tipoEsperado: "si_no",
+    });
+    if (interp?.tipo === "fuera_tema" && interp.respuestaRetomo) {
+      return interp.respuestaRetomo;
     }
   }
   console.log("[FLUJO] entrada generada:", JSON.stringify(entrada));
