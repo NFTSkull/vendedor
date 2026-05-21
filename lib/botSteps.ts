@@ -106,7 +106,6 @@ export async function procesarYEvolucionar(args: {
 
   const state = estadoActual;
   const statePregunta = estadoParaPregunta(state);
-  const tipoEsperado = tipoEsperadoDelEstado(state);
   console.log("[FLUJO] estado:", state, "texto:", texto);
 
   let entrada: EntradaInterpretada | undefined;
@@ -115,15 +114,14 @@ export async function procesarYEvolucionar(args: {
   // Para sí/no, normalizeText es suficiente y más confiable.
   if (
     claudeDisponible() &&
-    ESTADOS_CON_CLAUDE.has(state) &&
-    tipoEsperado !== "si_no"
+    ESTADOS_CON_CLAUDE.has(state)
   ) {
     const interp = await interpretarRespuestaUsuario({
       phone,
       state: statePregunta,
       textoUsuario: texto,
       preguntaActual: preguntaDelEstado(statePregunta),
-      tipoEsperado,
+      tipoEsperado: tipoEsperadoDelEstado(statePregunta),
     });
     console.log("[FLUJO] interpretacion Claude:", interp?.tipo);
 
@@ -134,19 +132,10 @@ export async function procesarYEvolucionar(args: {
     if (interp?.tipo === "reiniciar") {
       limpiarHistorialClaude(phone);
       const reinicio = await reiniciarFlujoCore(phone);
-      return aplicarClaudeSalida(phone, reinicio, "reinicio");
+      return reinicio.texto;
     }
 
-    if (interp?.tipo === "ambiguo") {
-      entrada = undefined;
-    }
-
-    if (
-      interp &&
-      interp.tipo !== "invalido" &&
-      interp.tipo !== "ambiguo" &&
-      interp.tipo !== "fuera_tema"
-    ) {
+    if (interp && interp.tipo !== "invalido") {
       entrada = interpretacionAEntrada(interp);
     }
   }
@@ -158,26 +147,6 @@ export async function procesarYEvolucionar(args: {
     textoUsuario: texto,
     entrada,
   });
-
-  // Para si_no: si hubo reintento, pedimos ayuda a Claude para fuera de tema
-  if (claudeDisponible() && tipoEsperado === "si_no") {
-    const preguntaActual = preguntaDelEstado(statePregunta);
-    const fueReintento =
-      resultado.texto === preguntaActual || resultado.texto.includes("No entendí");
-
-    if (fueReintento) {
-      const interp = await interpretarRespuestaUsuario({
-        phone,
-        state: statePregunta,
-        textoUsuario: texto,
-        preguntaActual,
-        tipoEsperado: "si_no",
-      });
-      if (interp?.tipo === "fuera_tema" && interp.respuestaRetomo) {
-        return interp.respuestaRetomo;
-      }
-    }
-  }
 
   const contexto = await estadoActivo(phone);
   return aplicarClaudeSalida(phone, resultado, contexto);

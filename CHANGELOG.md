@@ -4,6 +4,8 @@
 
 ### Cambio actual
 
+- **Claude interpretación natural:** `SYSTEM_PROMPT` y prompt de interpretación reforzados para respuestas humanas naturales; `botSteps` simplificado para una sola ruta de interpretación y manejo de fuera de tema.
+
 - **Persistencia del flujo en serverless:** estado conversacional migrado de `Map` en memoria a Supabase (`conversations` + caché local por request); `getConversation` / `setConversation` / `deleteConversation`.
 
 - **Copy crédito Infonavit:** pregunta del paso 3 cambiada a «Actualmente estás pagando un crédito Infonavit».
