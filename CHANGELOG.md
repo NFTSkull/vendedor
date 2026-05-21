@@ -4,6 +4,8 @@
 
 ### Cambio actual
 
+- **Inicio robusto del flujo:** para contactos nuevos (`inicio`) el primer mensaje siempre dispara `MSG_BIENVENIDA` sin intervención de Claude; en `finalizado` se limpia historial de Claude, se reinicia flujo y se retorna bienvenida exacta.
+
 - **Flujo del bot:** mensajes del embudo se envían exactos (sin naturalización Claude); Claude solo para fuera de tema, tono profesional y retomo con texto literal de la pregunta.
 
 - **Copy del bot:** se quitaron las líneas «Responde: Sí / No» de las preguntas de precalificación; Claude instruido para no usar emojis ni símbolos especiales.

@@ -19,6 +19,15 @@ import {
 
 export type { BotState } from "@/lib/botStepsCore";
 
+const ESTADOS_CON_CLAUDE: ReadonlySet<BotState> = new Set([
+  "esperando_labor_vigente",
+  "esperando_infonavit",
+  "esperando_credito_activo",
+  "esperando_centro_trabajo",
+  "esperando_datos",
+  "esperando_horario",
+]);
+
 function estadoActivo(phone: string): BotState {
   const raw = conversationMemory.get(phone)?.state;
   return (raw ?? "inicio") as BotState;
@@ -72,6 +81,8 @@ export async function procesarYEvolucionar(args: {
   if (!texto) return null;
 
   const phone = args.phone;
+  const estadoActual = (conversationMemory.get(phone)?.state ??
+    "inicio") as BotState;
 
   if (esComandoReinicio(texto)) {
     limpiarHistorialClaude(phone);
@@ -79,12 +90,26 @@ export async function procesarYEvolucionar(args: {
     return aplicarClaudeSalida(phone, reinicio, "reinicio");
   }
 
-  const state = estadoActivo(phone);
+  if (estadoActual === "inicio") {
+    const resultadoInicio = await ejecutarPasoCore({
+      phone,
+      textoUsuario: texto,
+    });
+    return resultadoInicio.texto;
+  }
+
+  if (estadoActual === "finalizado") {
+    limpiarHistorialClaude(phone);
+    const reinicio = reiniciarFlujoCore(phone);
+    return reinicio.texto;
+  }
+
+  const state = estadoActual;
   const statePregunta = estadoParaPregunta(state);
 
   let entrada: EntradaInterpretada | undefined;
 
-  if (claudeDisponible() && state !== "finalizado") {
+  if (claudeDisponible() && ESTADOS_CON_CLAUDE.has(state)) {
     const interp = await interpretarRespuestaUsuario({
       phone,
       state: statePregunta,
