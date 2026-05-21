@@ -10,7 +10,12 @@ export function esAfirmativo(texto: string): boolean {
   const n = normalizarTexto(texto);
   if (!n) return false;
   if (esNegativo(texto)) return false;
-  if (/\b(si|sip|claro|ok|okay|vale|correcto)\b/.test(n)) return true;
+  if (
+    /\b(si|sip|claro|ok|okay|vale|correcto|efectivamente)\b/.test(n) ||
+    n.includes("asi es")
+  ) {
+    return true;
+  }
   return n === "s" || n === "y";
 }
 

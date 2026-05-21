@@ -135,6 +135,24 @@ describe("botSteps memoria Map", () => {
     expect(conversationMemory.get(p)?.nss).toBe("01234567890");
   });
 
+  it("rechaza NSS cuando trae más de 11 dígitos", async () => {
+    const p = "5210101010101";
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+
+    const reply = await procesarYEvolucionar({
+      phone: p,
+      textoUsuario: "123456789012",
+    });
+
+    expect(reply).toContain("11 dígitos");
+    expect(conversationMemory.get(p)?.state).toBe("esperando_datos");
+    expect(conversationMemory.get(p)?.nss).toBeNull();
+  });
+
   it("rechaza crédito Infonavit activo", async () => {
     const p = "5255555555555";
     await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });

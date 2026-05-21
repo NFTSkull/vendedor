@@ -237,8 +237,10 @@ export async function ejecutarPasoCore(args: {
         exacto(MSG_CENTRO_TRABAJO),
       );
     case "esperando_datos": {
+      const digitosTexto = texto.replace(/\D/g, "");
+      const textoTieneNssValido = digitosTexto.length === 11;
       const nss =
-        entrada?.nss && /^\d{11}$/.test(entrada.nss)
+        textoTieneNssValido && entrada?.nss && /^\d{11}$/.test(entrada.nss)
           ? entrada.nss
           : extraerNssOnceDigitos(texto);
       if (!nss) {

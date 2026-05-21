@@ -106,6 +106,7 @@ export async function procesarYEvolucionar(args: {
 
   const state = estadoActual;
   const statePregunta = estadoParaPregunta(state);
+  console.log("[FLUJO] estado:", state, "texto:", texto);
 
   let entrada: EntradaInterpretada | undefined;
 
@@ -117,6 +118,7 @@ export async function procesarYEvolucionar(args: {
       preguntaActual: preguntaDelEstado(statePregunta),
       tipoEsperado: tipoEsperadoDelEstado(statePregunta),
     });
+    console.log("[FLUJO] interpretacion Claude:", interp?.tipo);
 
     if (interp?.tipo === "fuera_tema" && interp.respuestaRetomo) {
       return interp.respuestaRetomo;
@@ -128,14 +130,20 @@ export async function procesarYEvolucionar(args: {
       return aplicarClaudeSalida(phone, reinicio, "reinicio");
     }
 
+    if (interp?.tipo === "ambiguo") {
+      entrada = undefined;
+    }
+
     if (
       interp &&
       interp.tipo !== "invalido" &&
+      interp.tipo !== "ambiguo" &&
       interp.tipo !== "fuera_tema"
     ) {
       entrada = interpretacionAEntrada(interp);
     }
   }
+  console.log("[FLUJO] entrada generada:", JSON.stringify(entrada));
 
   const resultado = await ejecutarPasoCore({
     phone,
