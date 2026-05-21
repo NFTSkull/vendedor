@@ -1,4 +1,8 @@
-import { conversationMemory } from "@/lib/conversationMemory";
+import {
+  deleteConversation,
+  getConversation,
+  setConversation,
+} from "@/lib/conversationMemory";
 import { extraerNssOnceDigitos } from "@/lib/nss";
 import { esAfirmativo, esComandoReinicio, esNegativo } from "@/lib/normalizeText";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
@@ -108,8 +112,8 @@ function exacto(texto: string): ResultadoPaso {
   return { texto, exacto: true };
 }
 
-function rechazar(phone: string, mensaje: string): ResultadoPaso {
-  conversationMemory.set(phone, {
+async function rechazar(phone: string, mensaje: string): Promise<ResultadoPaso> {
+  await setConversation(phone, {
     state: "finalizado",
     name: null,
     nss: null,
@@ -117,13 +121,13 @@ function rechazar(phone: string, mensaje: string): ResultadoPaso {
   return exacto(mensaje);
 }
 
-function responderSiNoCore(
+async function responderSiNoCore(
   texto: string,
   entrada: EntradaInterpretada | undefined,
-  onSi: () => ResultadoPaso,
-  onNo: () => ResultadoPaso,
+  onSi: () => Promise<ResultadoPaso>,
+  onNo: () => Promise<ResultadoPaso>,
   reintento: ResultadoPaso,
-): ResultadoPaso {
+): Promise<ResultadoPaso> {
   if (entrada?.esSi) return onSi();
   if (entrada?.esNo) return onNo();
   if (esAfirmativo(texto)) return onSi();
@@ -145,9 +149,9 @@ async function guardarLead(phone: string, nss: string, horario: string) {
   }
 }
 
-export function reiniciarFlujoCore(phone: string): ResultadoPaso {
-  conversationMemory.delete(phone);
-  conversationMemory.set(phone, {
+export async function reiniciarFlujoCore(phone: string): Promise<ResultadoPaso> {
+  await deleteConversation(phone);
+  await setConversation(phone, {
     state: "esperando_labor_vigente",
     name: null,
     nss: null,
@@ -163,56 +167,56 @@ export async function ejecutarPasoCore(args: {
   const texto = args.textoUsuario.trim();
   const phone = args.phone;
   const entrada = args.entrada;
-  const row = conversationMemory.get(phone);
-  const state = (row?.state ?? "inicio") as BotState;
+  const row = await getConversation(phone);
+  const state = row.state as BotState;
 
   switch (state) {
     case "finalizado":
-      return reiniciarFlujoCore(phone);
+      return await reiniciarFlujoCore(phone);
     case "inicio":
-      conversationMemory.set(phone, {
+      await setConversation(phone, {
         state: "esperando_labor_vigente",
         name: null,
         nss: null,
       });
       return exacto(MSG_BIENVENIDA);
     case "esperando_labor_vigente":
-      return responderSiNoCore(
+      return await responderSiNoCore(
         texto,
         entrada,
-        () => {
-          conversationMemory.set(phone, {
+        async () => {
+          await setConversation(phone, {
             state: "esperando_infonavit",
             name: null,
             nss: null,
           });
           return exacto(MSG_INFONAVIT);
         },
-        () => rechazar(phone, MSG_RECHAZO_LABOR),
+        async () => rechazar(phone, MSG_RECHAZO_LABOR),
         exacto(MSG_BIENVENIDA),
       );
     case "esperando_infonavit":
-      return responderSiNoCore(
+      return await responderSiNoCore(
         texto,
         entrada,
-        () => {
-          conversationMemory.set(phone, {
+        async () => {
+          await setConversation(phone, {
             state: "esperando_credito_activo",
             name: null,
             nss: null,
           });
           return exacto(MSG_CREDITO_ACTIVO);
         },
-        () => rechazar(phone, MSG_RECHAZO_INFONAVIT),
+        async () => rechazar(phone, MSG_RECHAZO_INFONAVIT),
         exacto(MSG_INFONAVIT),
       );
     case "esperando_credito_activo":
-      return responderSiNoCore(
+      return await responderSiNoCore(
         texto,
         entrada,
-        () => rechazar(phone, MSG_RECHAZO_CREDITO_ACTIVO),
-        () => {
-          conversationMemory.set(phone, {
+        async () => rechazar(phone, MSG_RECHAZO_CREDITO_ACTIVO),
+        async () => {
+          await setConversation(phone, {
             state: "esperando_centro_trabajo",
             name: null,
             nss: null,
@@ -222,18 +226,18 @@ export async function ejecutarPasoCore(args: {
         exacto(MSG_CREDITO_ACTIVO),
       );
     case "esperando_centro_trabajo":
-      return responderSiNoCore(
+      return await responderSiNoCore(
         texto,
         entrada,
-        () => {
-          conversationMemory.set(phone, {
+        async () => {
+          await setConversation(phone, {
             state: "esperando_datos",
             name: null,
             nss: null,
           });
           return exacto(MSG_SOLICITUD_DATOS);
         },
-        () => rechazar(phone, MSG_RECHAZO_CENTRO_TRABAJO),
+        async () => rechazar(phone, MSG_RECHAZO_CENTRO_TRABAJO),
         exacto(MSG_CENTRO_TRABAJO),
       );
     case "esperando_datos": {
@@ -246,7 +250,7 @@ export async function ejecutarPasoCore(args: {
       if (!nss) {
         return exacto(MSG_NSS_INVALIDO);
       }
-      conversationMemory.set(phone, {
+      await setConversation(phone, {
         state: "esperando_horario",
         name: null,
         nss,
@@ -259,8 +263,8 @@ export async function ejecutarPasoCore(args: {
       return exacto(MSG_MONTO_Y_HORARIO);
     }
     case "esperando_horario": {
-      if (!row?.nss) {
-        return reiniciarFlujoCore(phone);
+      if (!row.nss) {
+        return await reiniciarFlujoCore(phone);
       }
       const horarioValido =
         entrada?.esHorarioValido === true || texto.length >= 3;
@@ -272,7 +276,7 @@ export async function ejecutarPasoCore(args: {
       }
       await guardarLead(phone, row.nss, texto);
 
-      conversationMemory.set(phone, {
+      await setConversation(phone, {
         state: "finalizado",
         name: null,
         nss: null,
@@ -280,7 +284,7 @@ export async function ejecutarPasoCore(args: {
       return exacto(MSG_FINAL);
     }
     default:
-      return reiniciarFlujoCore(phone);
+      return await reiniciarFlujoCore(phone);
   }
 }
 

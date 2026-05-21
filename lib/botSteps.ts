@@ -5,7 +5,7 @@ import {
   naturalizarMensajeBot,
   type InterpretacionUsuario,
 } from "@/lib/claudeAssistant";
-import { conversationMemory } from "@/lib/conversationMemory";
+import { getConversation } from "@/lib/conversationMemory";
 import {
   ejecutarPasoCore,
   esComandoReinicio,
@@ -28,9 +28,9 @@ const ESTADOS_CON_CLAUDE: ReadonlySet<BotState> = new Set([
   "esperando_horario",
 ]);
 
-function estadoActivo(phone: string): BotState {
-  const raw = conversationMemory.get(phone)?.state;
-  return (raw ?? "inicio") as BotState;
+async function estadoActivo(phone: string): Promise<BotState> {
+  const conv = await getConversation(phone);
+  return conv.state;
 }
 
 function estadoParaPregunta(state: BotState): BotState {
@@ -81,12 +81,12 @@ export async function procesarYEvolucionar(args: {
   if (!texto) return null;
 
   const phone = args.phone;
-  const estadoActual = (conversationMemory.get(phone)?.state ??
-    "inicio") as BotState;
+  const conv = await getConversation(phone);
+  const estadoActual = conv.state;
 
   if (esComandoReinicio(texto)) {
     limpiarHistorialClaude(phone);
-    const reinicio = reiniciarFlujoCore(phone);
+    const reinicio = await reiniciarFlujoCore(phone);
     return aplicarClaudeSalida(phone, reinicio, "reinicio");
   }
 
@@ -100,7 +100,7 @@ export async function procesarYEvolucionar(args: {
 
   if (estadoActual === "finalizado") {
     limpiarHistorialClaude(phone);
-    const reinicio = reiniciarFlujoCore(phone);
+    const reinicio = await reiniciarFlujoCore(phone);
     return reinicio.texto;
   }
 
@@ -133,7 +133,7 @@ export async function procesarYEvolucionar(args: {
 
     if (interp?.tipo === "reiniciar") {
       limpiarHistorialClaude(phone);
-      const reinicio = reiniciarFlujoCore(phone);
+      const reinicio = await reiniciarFlujoCore(phone);
       return aplicarClaudeSalida(phone, reinicio, "reinicio");
     }
 
@@ -177,6 +177,6 @@ export async function procesarYEvolucionar(args: {
     entrada,
   });
 
-  const contexto = estadoActivo(phone);
+  const contexto = await estadoActivo(phone);
   return aplicarClaudeSalida(phone, resultado, contexto);
 }

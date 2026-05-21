@@ -3,11 +3,50 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { procesarYEvolucionar } from "@/lib/botSteps";
 import { conversationMemory } from "@/lib/conversationMemory";
 
+const conversationsStore = new Map<
+  string,
+  { state: string; nss: string | null }
+>();
+
 vi.mock("@/lib/supabaseAdmin", () => ({
   getSupabaseAdmin: () => ({
-    from: () => ({
-      insert: vi.fn().mockResolvedValue({ error: null }),
-    }),
+    from: (table: string) => {
+      if (table === "leads") {
+        return {
+          insert: vi.fn().mockResolvedValue({ error: null }),
+        };
+      }
+      if (table === "conversations") {
+        return {
+          select: () => ({
+            eq: (_col: string, phone: string) => ({
+              maybeSingle: async () => ({
+                data: conversationsStore.get(phone) ?? null,
+                error: null,
+              }),
+            }),
+          }),
+          upsert: async (row: {
+            whatsapp_phone: string;
+            state: string;
+            nss: string | null;
+          }) => {
+            conversationsStore.set(row.whatsapp_phone, {
+              state: row.state,
+              nss: row.nss,
+            });
+            return { error: null };
+          },
+          delete: () => ({
+            eq: async (_col: string, phone: string) => {
+              conversationsStore.delete(phone);
+              return { error: null };
+            },
+          }),
+        };
+      }
+      return {};
+    },
   }),
 }));
 
@@ -28,7 +67,10 @@ describe("botSteps memoria Map", () => {
     process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role";
   });
 
-  afterEach(() => conversationMemory.clear());
+  afterEach(() => {
+    conversationMemory.clear();
+    conversationsStore.clear();
+  });
 
   it("flujo completo hasta cierre con asesor y logea lead", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
