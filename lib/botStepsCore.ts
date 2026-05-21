@@ -37,7 +37,7 @@ export const MSG_RECHAZO_INFONAVIT =
   "Lo sentimos, estar dado de alta en Infonavit es un requisito indispensable para obtener el crédito.";
 
 export const MSG_CREDITO_ACTIVO =
-  "Actualmente estas pagando un crédito Infonavit";
+  "¿Actualmente estas pagando un crédito Infonavit?";
 
 export const MSG_RECHAZO_CREDITO_ACTIVO =
   "Es necesario que termines de pagar tu crédito Infonavit actual para poder continuar con este trámite.";
