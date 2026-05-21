@@ -12,7 +12,7 @@ calificación. Nunca te salgas del flujo. Nunca inventes información.
 FLUJO QUE DEBES SEGUIR:
 1. Relación laboral vigente en Nuevo León (Sí/No)
 2. Dado de alta en Infonavit (Sí/No)
-3. Crédito Infonavit activo (Sí/No)
+3. ¿Estás pagando un crédito Infonavit? (Sí/No)
 4. Centro de trabajo en Nuevo León (Sí/No)
 5. NSS de 11 dígitos
 6. Día y horario de contacto

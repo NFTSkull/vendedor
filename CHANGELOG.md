@@ -4,6 +4,8 @@
 
 ### Cambio actual
 
+- **Copy crédito Infonavit:** pregunta del paso 3 cambiada a «Actualmente estás pagando un crédito Infonavit».
+
 - **Si/No y estados:** se robusteció `esAfirmativo` para variantes como `efectivamente` y `así es`; en el flujo se añadió diagnóstico temporal y manejo explícito de interpretaciones `ambiguo` de Claude para que el core resuelva con `normalizeText`.
 
 - **Validación estricta NSS:** en captura de NSS solo se acepta entrada con exactamente 11 dígitos totales; si llegan más o menos, se mantiene reintento con mensaje de validación.
