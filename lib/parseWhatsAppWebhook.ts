@@ -38,9 +38,15 @@ export function extraerTextosEntrantes(body: unknown): WhatsAppTextInbound[] {
     if (!Array.isArray(changes)) continue;
     for (const ch of changes) {
       if (!ch || typeof ch !== "object") continue;
+      const value = (ch as Record<string, unknown>).value;
+      if (value && typeof value === "object") {
+        console.log(
+          "[PARSE] tipo de evento recibido:",
+          JSON.stringify(Object.keys(value as Record<string, unknown>)),
+        );
+      }
       const field = (ch as Record<string, unknown>).field;
       if (field !== "messages") continue;
-      const value = (ch as Record<string, unknown>).value;
       if (!value || typeof value !== "object") continue;
       result.push(...recolectarValor(value as Record<string, unknown>));
     }
