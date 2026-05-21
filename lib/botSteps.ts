@@ -151,24 +151,6 @@ export async function procesarYEvolucionar(args: {
     }
   }
 
-  // Para sí/no: si no lo detecta normalizeText, Claude ayuda
-  // SOLO si el texto es claramente fuera de tema (más de 4 palabras)
-  if (
-    claudeDisponible() &&
-    tipoEsperado === "si_no" &&
-    texto.split(" ").length > 4
-  ) {
-    const interp = await interpretarRespuestaUsuario({
-      phone,
-      state: statePregunta,
-      textoUsuario: texto,
-      preguntaActual: preguntaDelEstado(statePregunta),
-      tipoEsperado: "si_no",
-    });
-    if (interp?.tipo === "fuera_tema" && interp.respuestaRetomo) {
-      return interp.respuestaRetomo;
-    }
-  }
   console.log("[FLUJO] entrada generada:", JSON.stringify(entrada));
 
   const resultado = await ejecutarPasoCore({
@@ -176,6 +158,26 @@ export async function procesarYEvolucionar(args: {
     textoUsuario: texto,
     entrada,
   });
+
+  // Para si_no: si hubo reintento, pedimos ayuda a Claude para fuera de tema
+  if (claudeDisponible() && tipoEsperado === "si_no") {
+    const preguntaActual = preguntaDelEstado(statePregunta);
+    const fueReintento =
+      resultado.texto === preguntaActual || resultado.texto.includes("No entendí");
+
+    if (fueReintento) {
+      const interp = await interpretarRespuestaUsuario({
+        phone,
+        state: statePregunta,
+        textoUsuario: texto,
+        preguntaActual,
+        tipoEsperado: "si_no",
+      });
+      if (interp?.tipo === "fuera_tema" && interp.respuestaRetomo) {
+        return interp.respuestaRetomo;
+      }
+    }
+  }
 
   const contexto = await estadoActivo(phone);
   return aplicarClaudeSalida(phone, resultado, contexto);
