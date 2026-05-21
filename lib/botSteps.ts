@@ -98,12 +98,6 @@ export async function procesarYEvolucionar(args: {
     return resultadoInicio.texto;
   }
 
-  if (estadoActual === "finalizado") {
-    limpiarHistorialClaude(phone);
-    const reinicio = await reiniciarFlujoCore(phone);
-    return reinicio.texto;
-  }
-
   const state = estadoActual;
   const statePregunta = estadoParaPregunta(state);
   console.log("[FLUJO] estado:", state, "texto:", texto);
@@ -147,6 +141,40 @@ export async function procesarYEvolucionar(args: {
     textoUsuario: texto,
     entrada,
   });
+
+  if (resultado.texto === "__POST_FLUJO__") {
+    try {
+      const Anthropic = (await import("@anthropic-ai/sdk")).default;
+      const client = new Anthropic({
+        apiKey: process.env.ANTHROPIC_API_KEY,
+      });
+      const response = await client.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 200,
+        messages: [
+          {
+            role: "user",
+            content: `El usuario completó el registro de Mejoravit y escribió: "${texto}". 
+Responde en máximo 2 líneas, tono profesional, sin emojis:
+- Si agradece → responde cordialmente
+- Si pregunta cuándo le contactan → pronto en el horario indicado
+- Si pregunta dónde están → Monterrey, Nuevo León  
+- Si pregunta qué es Mejoravit → crédito de mejora del hogar con Infonavit
+- Si pregunta algo más → responde brevemente, el asesor aclarará
+- Si se despide → despídete cordialmente
+NUNCA reinicies el flujo.`,
+          },
+        ],
+      });
+      const respuesta = response.content
+        .filter((b) => b.type === "text")
+        .map((b) => b.text)
+        .join("");
+      return respuesta || "Con gusto. Un asesor le contactará pronto.";
+    } catch {
+      return "Con gusto. Un asesor se pondrá en contacto contigo pronto.";
+    }
+  }
 
   const contexto = await estadoActivo(phone);
   return aplicarClaudeSalida(phone, resultado, contexto);

@@ -171,8 +171,9 @@ export async function ejecutarPasoCore(args: {
   const state = row.state as BotState;
 
   switch (state) {
-    case "finalizado":
-      return await reiniciarFlujoCore(phone);
+    case "finalizado": {
+      return { texto: "__POST_FLUJO__", exacto: true };
+    }
     case "inicio":
       await setConversation(phone, {
         state: "esperando_labor_vigente",
