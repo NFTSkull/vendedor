@@ -2,11 +2,22 @@ import { z } from "zod";
 
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
-const precalificarBodySchema = z.object({
-  nss: z.string().min(1),
-  phoneNumber: z.string().min(1),
-  source: z.enum(["bot", "crm"]).optional().default("bot"),
-});
+const precalificarBodySchema = z
+  .object({
+    nss: z.string().min(1),
+    phoneNumber: z.string().optional(),
+    source: z.enum(["bot", "crm"]).optional().default("bot"),
+  })
+  .transform((data) => ({
+    ...data,
+    phoneNumber:
+      data.phoneNumber?.trim() ||
+      (data.source === "crm" ? `crm-${data.nss.replace(/\D/g, "")}` : ""),
+  }))
+  .refine((data) => data.phoneNumber.length > 0, {
+    message: "Falta phoneNumber",
+    path: ["phoneNumber"],
+  });
 
 type DatosCredito = {
   montoCredito?: number | string;

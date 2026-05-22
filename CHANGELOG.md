@@ -7,7 +7,7 @@
 - **Precalificación Infonavit:** endpoint `POST /api/precalificar`, disparo desde webhook al confirmar NSS, mensaje de espera y notificación por WhatsApp con resultado del scraper.
 - **Mensaje de aprobado:** el rango mostrado al lead ahora se calcula con base en `saldo_subcuenta` (90% prestable, luego 80%-85%), mostrando solo el monto final estimado sin exponer montos crudos del portal.
 - **CRM detalle lead:** botón `Precalificar` / `Re-precalificar` en `/crm/leads/[id]` con estado de carga, resultado visual (aprobado/rechazado), motivo y fecha de consulta. Desde CRM se llama `/api/precalificar` con `source: "crm"` para omitir envío de WhatsApp.
-- **Acceso rápido en listado CRM:** botón `Precalificar` agregado junto a `Cerrar sesión` en `/crm/leads` para abrir directamente el primer lead con NSS pendiente de precalificación.
+- **Acceso rápido en listado CRM:** botón `Precalificar` junto a `Cerrar sesión` en `/crm/leads` abre modal para capturar NSS (y teléfono opcional), consultar Infonavit y mostrar resultado sin depender de leads existentes.
 
 - **Post-flujo:** cuando el estado es `finalizado`, ya no se reinicia el embudo; Claude responde mensajes posteriores (gracias, dudas, despedida) sin reiniciar la conversación.
 

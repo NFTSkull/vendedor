@@ -2,7 +2,17 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+
+import {
+  calcularRangoAprobado,
+  formatearMoneda,
+  motivoRechazoLegible,
+  normalizarNumero,
+  nssSoloDigitos,
+  nssValido,
+  type ResultadoPrecalificacionApi,
+} from "@/lib/precalificacionDisplay";
 
 type LeadEstado = "nuevo" | "contactado" | "no_interesado";
 
@@ -31,24 +41,24 @@ export default function CrmLeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
-  const [precalifMsg, setPrecalifMsg] = useState("");
+
+  const [modalAbierto, setModalAbierto] = useState(false);
+  const [nssInput, setNssInput] = useState("");
+  const [telefonoInput, setTelefonoInput] = useState("");
+  const [precalificando, setPrecalificando] = useState(false);
+  const [precalifError, setPrecalifError] = useState("");
+  const [resultado, setResultado] = useState<ResultadoPrecalificacionApi | null>(
+    null,
+  );
 
   const nuevosCount = useMemo(
     () => leads.filter((l) => l.estado === "nuevo").length,
     [leads],
   );
 
-  const leadPrecalificable = useMemo(
-    () =>
-      leads.find(
-        (lead) =>
-          Boolean(lead.nss) &&
-          (lead.precalificacion_status === null ||
-            lead.precalificacion_status === "pendiente" ||
-            lead.precalificacion_status === "rechazado"),
-      ) ?? null,
-    [leads],
-  );
+  const saldoSubcuenta = normalizarNumero(resultado?.datos?.saldoSubcuenta);
+  const rangoAprobado =
+    saldoSubcuenta > 0 ? calcularRangoAprobado(saldoSubcuenta) : null;
 
   async function cargarLeads() {
     const token = localStorage.getItem("crm_token");
@@ -90,13 +100,65 @@ export default function CrmLeadsPage() {
     router.replace("/crm/login");
   }
 
-  function irAPrecalificar() {
-    if (!leadPrecalificable) {
-      setPrecalifMsg("No hay leads con NSS pendientes de precalificación.");
+  function abrirModalPrecalificar() {
+    setModalAbierto(true);
+    setPrecalifError("");
+    setResultado(null);
+    setNssInput("");
+    setTelefonoInput("");
+  }
+
+  function cerrarModal() {
+    if (precalificando) return;
+    setModalAbierto(false);
+  }
+
+  async function enviarPrecalificacion(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const nss = nssSoloDigitos(nssInput);
+
+    if (!nssValido(nss)) {
+      setPrecalifError("Ingresa un NSS válido de 11 dígitos.");
       return;
     }
-    setPrecalifMsg("");
-    router.push(`/crm/leads/${leadPrecalificable.id}`);
+
+    setPrecalificando(true);
+    setPrecalifError("");
+    setResultado(null);
+
+    try {
+      const body: Record<string, string> = {
+        nss,
+        source: "crm",
+      };
+      const tel = telefonoInput.replace(/\D/g, "");
+      if (tel.length >= 10) {
+        body.phoneNumber = tel;
+      }
+
+      const res = await fetch("/api/precalificar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        setPrecalifError(err.error || "No se pudo completar la precalificación.");
+        return;
+      }
+
+      const data = (await res.json()) as {
+        ok: boolean;
+        resultado: ResultadoPrecalificacionApi;
+      };
+      setResultado(data.resultado);
+      await cargarLeads();
+    } catch {
+      setPrecalifError("Error de red al consultar Infonavit.");
+    } finally {
+      setPrecalificando(false);
+    }
   }
 
   useEffect(() => {
@@ -117,13 +179,14 @@ export default function CrmLeadsPage() {
 
           <div className="flex items-center gap-2">
             <button
-              onClick={irAPrecalificar}
-              disabled={!leadPrecalificable}
-              className="self-start md:self-auto rounded-xl bg-blue-600 text-white px-4 py-2 text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              type="button"
+              onClick={abrirModalPrecalificar}
+              className="self-start md:self-auto rounded-xl bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700"
             >
               Precalificar
             </button>
             <button
+              type="button"
               onClick={cerrarSesion}
               className="self-start md:self-auto rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100"
             >
@@ -131,12 +194,6 @@ export default function CrmLeadsPage() {
             </button>
           </div>
         </header>
-
-        {precalifMsg ? (
-          <section className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-            {precalifMsg}
-          </section>
-        ) : null}
 
         {loading ? (
           <section className="space-y-3">
@@ -153,7 +210,9 @@ export default function CrmLeadsPage() {
           </section>
         ) : leads.length === 0 ? (
           <section className="rounded-xl border border-slate-200 bg-white p-6 text-slate-600">
-            No hay leads registrados todavía.
+            No hay leads registrados todavía. Usa{" "}
+            <span className="font-medium">Precalificar</span> para consultar un
+            NSS en Infonavit.
           </section>
         ) : (
           <>
@@ -173,7 +232,7 @@ export default function CrmLeadsPage() {
                   {leads.map((lead) => (
                     <tr key={lead.id} className="border-t border-slate-100">
                       <td className="p-3">{lead.whatsapp_phone}</td>
-                      <td className="p-3">{lead.nss}</td>
+                      <td className="p-3">{lead.nss ?? "—"}</td>
                       <td className="p-3">{lead.horario}</td>
                       <td className="p-3">
                         <span
@@ -220,7 +279,8 @@ export default function CrmLeadsPage() {
 
                   <div className="mt-2 text-sm text-slate-700 space-y-1">
                     <p>
-                      <span className="font-medium">NSS:</span> {lead.nss}
+                      <span className="font-medium">NSS:</span>{" "}
+                      {lead.nss ?? "—"}
                     </p>
                     <p>
                       <span className="font-medium">Horario:</span> {lead.horario}
@@ -243,6 +303,139 @@ export default function CrmLeadsPage() {
           </>
         )}
       </div>
+
+      {modalAbierto ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={cerrarModal}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 md:p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-lg font-semibold">Precalificar en Infonavit</h2>
+              <button
+                type="button"
+                onClick={cerrarModal}
+                disabled={precalificando}
+                className="rounded-lg border border-slate-300 px-2 py-1 text-sm hover:bg-slate-100 disabled:opacity-50"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <form onSubmit={enviarPrecalificacion} className="mt-4 space-y-3">
+              <div>
+                <label htmlFor="nss" className="block text-sm font-medium mb-1">
+                  Número de Seguro Social (NSS) *
+                </label>
+                <input
+                  id="nss"
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={11}
+                  value={nssInput}
+                  onChange={(e) =>
+                    setNssInput(e.target.value.replace(/\D/g, "").slice(0, 11))
+                  }
+                  disabled={precalificando}
+                  placeholder="11 dígitos"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="telefono"
+                  className="block text-sm font-medium mb-1"
+                >
+                  Teléfono WhatsApp (opcional)
+                </label>
+                <input
+                  id="telefono"
+                  type="text"
+                  inputMode="tel"
+                  value={telefonoInput}
+                  onChange={(e) => setTelefonoInput(e.target.value)}
+                  disabled={precalificando}
+                  placeholder="Si ya existe lead, vincular por teléfono"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100"
+                />
+              </div>
+
+              {precalifError ? (
+                <p className="text-sm text-red-600">{precalifError}</p>
+              ) : null}
+
+              <button
+                type="submit"
+                disabled={precalificando || nssInput.length !== 11}
+                className="w-full rounded-xl bg-blue-600 text-white px-4 py-2.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
+              >
+                {precalificando
+                  ? "Consultando Infonavit..."
+                  : "Consultar precalificación"}
+              </button>
+            </form>
+
+            {resultado ? (
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
+                {resultado.califica ? (
+                  <>
+                    <span className="inline-flex rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-xs font-medium text-emerald-700">
+                      ✅ Aprobado
+                    </span>
+                    <div className="mt-2 grid gap-1 text-slate-800">
+                      <p>
+                        <span className="font-medium">Titular:</span>{" "}
+                        {resultado.nombre ?? "Sin dato"}
+                      </p>
+                      <p>
+                        <span className="font-medium">Monto aprobado:</span>{" "}
+                        {rangoAprobado
+                          ? `${formatearMoneda(rangoAprobado.min)} a ${formatearMoneda(
+                              rangoAprobado.max,
+                            )}`
+                          : "Sin dato"}
+                      </p>
+                      <p>
+                        <span className="font-medium">Capacidad de compra:</span>{" "}
+                        {resultado.datos?.capacidadCompra
+                          ? formatearMoneda(
+                              normalizarNumero(resultado.datos.capacidadCompra),
+                            )
+                          : "Sin dato"}
+                      </p>
+                      <p>
+                        <span className="font-medium">Pago mensual estimado:</span>{" "}
+                        {resultado.datos?.pagoMensual
+                          ? formatearMoneda(
+                              normalizarNumero(resultado.datos.pagoMensual),
+                            )
+                          : "Sin dato"}
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <span className="inline-flex rounded-full border border-red-200 bg-white px-2.5 py-1 text-xs font-medium text-red-700">
+                      ❌ No califica
+                    </span>
+                    <p className="mt-2 text-slate-800">
+                      <span className="font-medium">Motivo:</span>{" "}
+                      {motivoRechazoLegible(resultado.mensaje)}
+                    </p>
+                    <p className="mt-1 text-slate-600">
+                      NSS consultado: {resultado.nss ?? nssSoloDigitos(nssInput)}
+                    </p>
+                  </>
+                )}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
