@@ -1,11 +1,13 @@
 import type { NextRequest } from "next/server";
 
 import { procesarYEvolucionar } from "@/lib/botSteps";
+import { getConversation } from "@/lib/conversationMemory";
 import {
   buscarLeadPorTelefono,
   guardarMensaje,
   leadEnModoChat,
 } from "@/lib/messagesDb";
+import { dispararPrecalificacion } from "@/lib/precalificarTrigger";
 import { getMetaWebhookVerificationResponse } from "@/lib/metaWebhookVerification";
 import { extraerTextosEntrantes } from "@/lib/parseWhatsAppWebhook";
 import { enviarMensajeTextoWa } from "@/lib/whatsappCloud";
@@ -71,10 +73,26 @@ export async function POST(req: NextRequest): Promise<Response> {
         continue;
       }
 
+      const conversacionAntes = await getConversation(m.from);
+
       const reply = await procesarYEvolucionar({
         phone: m.from,
         textoUsuario: m.body,
       });
+
+      const conversacion = await getConversation(m.from);
+      if (
+        !conversacionAntes.nss &&
+        conversacion.nss &&
+        conversacion.state === "esperando_horario"
+      ) {
+        await dispararPrecalificacion({
+          nss: conversacion.nss,
+          conversationId: m.from,
+          phoneNumber: m.from,
+        });
+      }
+
       if (!reply) continue;
 
       console.log("[WEBHOOK_DEBUG] to usado en Graph (enviarMensajeTextoWa):", m.from);

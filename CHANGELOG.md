@@ -4,6 +4,8 @@
 
 ### Cambio actual
 
+- **Precalificación Infonavit:** endpoint `POST /api/precalificar`, disparo desde webhook al confirmar NSS, mensaje de espera y notificación por WhatsApp con resultado del scraper.
+
 - **Post-flujo:** cuando el estado es `finalizado`, ya no se reinicia el embudo; Claude responde mensajes posteriores (gracias, dudas, despedida) sin reiniciar la conversación.
 
 - **Claude interpretación natural:** `SYSTEM_PROMPT` y prompt de interpretación reforzados para respuestas humanas naturales; `botSteps` simplificado para una sola ruta de interpretación y manejo de fuera de tema.
