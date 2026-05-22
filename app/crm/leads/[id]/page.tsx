@@ -14,12 +14,48 @@ type LeadEstado = "nuevo" | "contactado" | "no_interesado";
 type Lead = {
   id: string;
   whatsapp_phone: string;
-  nss: string;
-  horario: string;
+  nss: string | null;
+  horario: string | null;
   estado: LeadEstado;
   created_at: string;
   updated_at: string;
+  precalificacion_status: "aprobado" | "rechazado" | "pendiente" | null;
+  precalificacion_resultado: unknown;
+  precalificado_at: string | null;
+  nombre_infonavit: string | null;
+  saldo_subcuenta: number | string | null;
+  capacidad_compra: number | string | null;
+  pago_mensual: number | string | null;
 };
+
+type ResultadoPrecalificacionGuardado = {
+  mensaje?: string;
+  datos?: {
+    saldoSubcuenta?: number | string;
+  };
+};
+
+function normalizarNumero(value: number | string | null | undefined): number {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (typeof value !== "string") return 0;
+  const limpio = value.replace(/[^0-9.]/g, "");
+  const num = Number(limpio);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function formatearMoneda(value: number): string {
+  return `$${Math.floor(value).toLocaleString("es-MX")}`;
+}
+
+function calcularRangoAprobado(saldoSubcuenta: number): { min: number; max: number } {
+  const montoPrestable = saldoSubcuenta * 0.9;
+  return {
+    min: Math.floor(montoPrestable * 0.8),
+    max: Math.floor(montoPrestable * 0.85),
+  };
+}
 
 type ChatMessage = {
   id: string;
@@ -50,6 +86,9 @@ export default function CrmLeadDetallePage() {
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [okMsg, setOkMsg] = useState("");
+  const [precalificando, setPrecalificando] = useState(false);
+  const [precalificacionError, setPrecalificacionError] = useState("");
+  const [precalificacionOk, setPrecalificacionOk] = useState("");
 
   const [mensajes, setMensajes] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
@@ -226,6 +265,44 @@ export default function CrmLeadDetallePage() {
     }
   }
 
+  async function precalificarLead() {
+    if (!lead?.nss) {
+      setPrecalificacionError("Este lead no tiene NSS capturado.");
+      return;
+    }
+
+    setPrecalificando(true);
+    setPrecalificacionError("");
+    setPrecalificacionOk("");
+
+    try {
+      const res = await fetch("/api/precalificar", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          nss: lead.nss,
+          phoneNumber: lead.whatsapp_phone,
+          source: "crm",
+        }),
+      });
+
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        setPrecalificacionError(err.error || "No se pudo completar la precalificación.");
+        return;
+      }
+
+      await fetchLead();
+      setPrecalificacionOk("Precalificación actualizada correctamente.");
+    } catch {
+      setPrecalificacionError("Error de red al consultar Infonavit.");
+    } finally {
+      setPrecalificando(false);
+    }
+  }
+
   function onSubmitNota(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
   }
@@ -250,6 +327,25 @@ export default function CrmLeadDetallePage() {
 
   const chatHabilitado =
     lead?.estado === "contactado" || lead?.estado === "no_interesado";
+
+  const puedePrecalificar =
+    !!lead?.nss &&
+    (lead.precalificacion_status === null ||
+      lead.precalificacion_status === "pendiente" ||
+      lead.precalificacion_status === "rechazado" ||
+      lead.precalificacion_status === "aprobado");
+
+  const resultadoGuardado: ResultadoPrecalificacionGuardado | null =
+    lead?.precalificacion_resultado &&
+    typeof lead.precalificacion_resultado === "object"
+      ? (lead.precalificacion_resultado as ResultadoPrecalificacionGuardado)
+      : null;
+
+  const saldoSubcuentaValor = normalizarNumero(
+    lead?.saldo_subcuenta ?? resultadoGuardado?.datos?.saldoSubcuenta,
+  );
+  const rangoAprobado =
+    saldoSubcuentaValor > 0 ? calcularRangoAprobado(saldoSubcuentaValor) : null;
 
   return (
     <main className="min-h-screen p-4 md:p-6">
@@ -300,6 +396,88 @@ export default function CrmLeadDetallePage() {
                   {new Date(lead.updated_at).toLocaleString("es-MX")}
                 </p>
               </div>
+
+              <section className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <h2 className="text-base font-semibold">Precalificación Infonavit</h2>
+                  {puedePrecalificar ? (
+                    <button
+                      onClick={() => void precalificarLead()}
+                      disabled={precalificando}
+                      className="rounded-xl bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
+                    >
+                      {precalificando
+                        ? "Consultando Infonavit..."
+                        : lead.precalificado_at
+                          ? "Re-precalificar"
+                          : "Precalificar"}
+                    </button>
+                  ) : null}
+                </div>
+
+                {lead.precalificado_at ? (
+                  <p className="mt-2 text-xs text-slate-600">
+                    Última consulta: {new Date(lead.precalificado_at).toLocaleString("es-MX")}
+                  </p>
+                ) : (
+                  <p className="mt-2 text-sm text-slate-600">
+                    Aún no se ha consultado la precalificación de este lead.
+                  </p>
+                )}
+
+                {lead.precalificacion_status === "aprobado" ? (
+                  <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm">
+                    <span className="inline-flex rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-xs font-medium text-emerald-700">
+                      ✅ Aprobado
+                    </span>
+                    <div className="mt-2 grid gap-1 text-slate-800">
+                      <p>
+                        <span className="font-medium">Titular:</span>{" "}
+                        {lead.nombre_infonavit ?? "Sin dato"}
+                      </p>
+                      <p>
+                        <span className="font-medium">Monto aprobado:</span>{" "}
+                        {rangoAprobado
+                          ? `${formatearMoneda(rangoAprobado.min)} a ${formatearMoneda(
+                              rangoAprobado.max,
+                            )}`
+                          : "Sin dato"}
+                      </p>
+                      <p>
+                        <span className="font-medium">Capacidad de compra:</span>{" "}
+                        {lead.capacidad_compra
+                          ? formatearMoneda(normalizarNumero(lead.capacidad_compra))
+                          : "Sin dato"}
+                      </p>
+                      <p>
+                        <span className="font-medium">Pago mensual estimado:</span>{" "}
+                        {lead.pago_mensual
+                          ? formatearMoneda(normalizarNumero(lead.pago_mensual))
+                          : "Sin dato"}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+
+                {lead.precalificacion_status === "rechazado" ? (
+                  <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm">
+                    <span className="inline-flex rounded-full border border-red-200 bg-white px-2.5 py-1 text-xs font-medium text-red-700">
+                      ❌ No califica
+                    </span>
+                    <p className="mt-2 text-slate-800">
+                      <span className="font-medium">Motivo:</span>{" "}
+                      {resultadoGuardado?.mensaje ?? "No disponible"}
+                    </p>
+                  </div>
+                ) : null}
+
+                {precalificacionError ? (
+                  <p className="mt-3 text-sm text-red-600">{precalificacionError}</p>
+                ) : null}
+                {precalificacionOk ? (
+                  <p className="mt-3 text-sm text-emerald-600">{precalificacionOk}</p>
+                ) : null}
+              </section>
 
               <form onSubmit={onSubmitNota} className="mt-5">
                 <label htmlFor="nota" className="block text-sm font-medium mb-1">

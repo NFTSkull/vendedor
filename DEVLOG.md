@@ -4,6 +4,8 @@
 
 - `app/api/precalificar/route.ts` + `lib/precalificarTrigger.ts`: precalificación vía scraper tras captura de NSS; webhook dispara el job en segundo plano. Leads por `whatsapp_phone` (insert si aún no existe fila).
 - `buildMensajeAprobado` ahora calcula el rango con fórmula comercial desde `saldoSubcuenta` (`0.90 * 0.80` a `0.90 * 0.85`), redondea hacia abajo y comunica solo el rango final al lead.
+- CRM `/crm/leads/[id]`: se agregó módulo de precalificación manual con botón, loading "Consultando Infonavit...", badge de resultado y campos de resumen (titular, rango aprobado, capacidad de compra, pago mensual, motivo de rechazo).
+- `POST /api/precalificar` acepta `source: "crm"` para persistir resultado sin enviar WhatsApp cuando el disparo viene del panel CRM.
 - Estado `finalizado` con manejo post-flujo vía `__POST_FLUJO__` y llamada directa a Anthropic; se eliminó reinicio automático al recibir mensajes tras completar registro.
 - Claude ahora interpreta respuestas naturales con prompt más estricto y ejemplos explícitos; `procesarYEvolucionar` unificado para usar una sola vía de interpretación y responder fuera de tema sin reglas heurísticas de longitud.
 - Estado del bot persistido en Supabase (`conversations`): lectura con `maybeSingle` sin insert por defecto, escritura con `upsert` y caché `Map` por request; corrige pérdida de estado entre instancias Vercel.

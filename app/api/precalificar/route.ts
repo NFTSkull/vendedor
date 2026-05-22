@@ -5,6 +5,7 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 const precalificarBodySchema = z.object({
   nss: z.string().min(1),
   phoneNumber: z.string().min(1),
+  source: z.enum(["bot", "crm"]).optional().default("bot"),
 });
 
 type DatosCredito = {
@@ -38,7 +39,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "Faltan parámetros" }, { status: 400 });
     }
 
-    const { nss, phoneNumber } = parsed.data;
+    const { nss, phoneNumber, source } = parsed.data;
 
     if (!SCRAPER_URL || !SCRAPER_SECRET) {
       return Response.json(
@@ -100,11 +101,12 @@ export async function POST(request: Request) {
       });
     }
 
-    const mensaje = resultado.califica
-      ? buildMensajeAprobado(resultado)
-      : buildMensajeRechazado(resultado);
-
-    await enviarWhatsApp(phoneNumber, mensaje);
+    if (source !== "crm") {
+      const mensaje = resultado.califica
+        ? buildMensajeAprobado(resultado)
+        : buildMensajeRechazado(resultado);
+      await enviarWhatsApp(phoneNumber, mensaje);
+    }
 
     return Response.json({ ok: true, resultado });
   } catch (error: unknown) {
