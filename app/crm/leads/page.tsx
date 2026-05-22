@@ -9,10 +9,11 @@ type LeadEstado = "nuevo" | "contactado" | "no_interesado";
 type Lead = {
   id: string;
   whatsapp_phone: string;
-  nss: string;
+  nss: string | null;
   horario: string;
   estado: LeadEstado;
   created_at: string;
+  precalificacion_status: "aprobado" | "rechazado" | "pendiente" | null;
 };
 
 function estadoBadge(estado: LeadEstado): string {
@@ -30,9 +31,22 @@ export default function CrmLeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
+  const [precalifMsg, setPrecalifMsg] = useState("");
 
   const nuevosCount = useMemo(
     () => leads.filter((l) => l.estado === "nuevo").length,
+    [leads],
+  );
+
+  const leadPrecalificable = useMemo(
+    () =>
+      leads.find(
+        (lead) =>
+          Boolean(lead.nss) &&
+          (lead.precalificacion_status === null ||
+            lead.precalificacion_status === "pendiente" ||
+            lead.precalificacion_status === "rechazado"),
+      ) ?? null,
     [leads],
   );
 
@@ -76,6 +90,15 @@ export default function CrmLeadsPage() {
     router.replace("/crm/login");
   }
 
+  function irAPrecalificar() {
+    if (!leadPrecalificable) {
+      setPrecalifMsg("No hay leads con NSS pendientes de precalificación.");
+      return;
+    }
+    setPrecalifMsg("");
+    router.push(`/crm/leads/${leadPrecalificable.id}`);
+  }
+
   useEffect(() => {
     void cargarLeads();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -92,13 +115,28 @@ export default function CrmLeadsPage() {
             </p>
           </div>
 
-          <button
-            onClick={cerrarSesion}
-            className="self-start md:self-auto rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100"
-          >
-            Cerrar sesión
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={irAPrecalificar}
+              disabled={!leadPrecalificable}
+              className="self-start md:self-auto rounded-xl bg-blue-600 text-white px-4 py-2 text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Precalificar
+            </button>
+            <button
+              onClick={cerrarSesion}
+              className="self-start md:self-auto rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100"
+            >
+              Cerrar sesión
+            </button>
+          </div>
         </header>
+
+        {precalifMsg ? (
+          <section className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+            {precalifMsg}
+          </section>
+        ) : null}
 
         {loading ? (
           <section className="space-y-3">
