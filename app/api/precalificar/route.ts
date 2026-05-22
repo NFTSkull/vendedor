@@ -4,7 +4,6 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 const precalificarBodySchema = z.object({
   nss: z.string().min(1),
-  conversationId: z.string().min(1),
   phoneNumber: z.string().min(1),
 });
 
@@ -39,7 +38,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "Faltan parámetros" }, { status: 400 });
     }
 
-    const { nss, conversationId, phoneNumber } = parsed.data;
+    const { nss, phoneNumber } = parsed.data;
 
     if (!SCRAPER_URL || !SCRAPER_SECRET) {
       return Response.json(
@@ -80,23 +79,32 @@ export async function POST(request: Request) {
       updateData.pago_mensual = resultado.datos?.pagoMensual;
     }
 
-    await supabase
+    const { data: leadExistente } = await supabase
       .from("leads")
-      .update(updateData)
-      .eq("conversation_id", conversationId);
+      .select("id")
+      .eq("whatsapp_phone", phoneNumber)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (leadExistente) {
+      await supabase
+        .from("leads")
+        .update(updateData)
+        .eq("id", leadExistente.id);
+    } else {
+      await supabase.from("leads").insert({
+        whatsapp_phone: phoneNumber,
+        estado: "nuevo",
+        ...updateData,
+      });
+    }
 
     const mensaje = resultado.califica
       ? buildMensajeAprobado(resultado)
       : buildMensajeRechazado(resultado);
 
     await enviarWhatsApp(phoneNumber, mensaje);
-
-    if (resultado.califica) {
-      await supabase
-        .from("conversations")
-        .update({ status: "qualified", stage: "precalificado" })
-        .eq("id", conversationId);
-    }
 
     return Response.json({ ok: true, resultado });
   } catch (error: unknown) {

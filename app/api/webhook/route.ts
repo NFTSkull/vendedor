@@ -88,7 +88,6 @@ export async function POST(req: NextRequest): Promise<Response> {
       ) {
         await dispararPrecalificacion({
           nss: conversacion.nss,
-          conversationId: m.from,
           phoneNumber: m.from,
         });
       }

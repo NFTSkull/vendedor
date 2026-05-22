@@ -1,10 +1,8 @@
 export async function dispararPrecalificacion({
   nss,
-  conversationId,
   phoneNumber,
 }: {
   nss: string;
-  conversationId: string;
   phoneNumber: string;
 }) {
   try {
@@ -12,7 +10,7 @@ export async function dispararPrecalificacion({
     fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/precalificar`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nss, conversationId, phoneNumber }),
+      body: JSON.stringify({ nss, phoneNumber }),
     }).catch((err) => console.error("Error precalificación:", err));
   } catch (error) {
     console.error("Error dispararPrecalificacion:", error);
