@@ -114,27 +114,44 @@ export async function POST(request: Request) {
 }
 
 function buildMensajeAprobado(resultado: ResultadoPrecalificacion) {
-  const { nombre, datos, rangosAprobados } = resultado;
+  const { nombre, datos } = resultado;
   const nombreFormato = (nombre ?? "")
     .toLowerCase()
     .replace(/\b\w/g, (c: string) => c.toUpperCase())
     .trim();
 
+  const saldoSubcuenta = normalizarNumero(datos?.saldoSubcuenta);
+  const montoPrestable = saldoSubcuenta * 0.9;
+  const rangoMinimo = Math.floor(montoPrestable * 0.8);
+  const rangoMaximo = Math.floor(montoPrestable * 0.85);
+  const rangoTexto =
+    saldoSubcuenta > 0
+      ? `entre *${formatearMoneda(rangoMinimo)}* y *${formatearMoneda(rangoMaximo)}*`
+      : "en revisión con nuestro equipo";
+
   return `✅ *¡Buenas noticias, ${nombreFormato}!*
 
-Tu precalificación con Infonavit está lista 🏠
+¡Tu precalificación con Infonavit está lista! 🏠
 
-*Tus datos de crédito:*
-💰 Monto de Crédito INFONAVIT: *$${datos?.montoCredito}*
-🏦 Saldo Subcuenta de Vivienda: *$${datos?.saldoSubcuenta}*
-🏡 Capacidad de Compra: *$${datos?.capacidadCompra}*
-📅 Pago Mensual Estimado: *$${datos?.pagoMensual}*
-
-*Monto disponible estimado para mejoras con Mejoravit:*
-📊 Rango aprobado: *${rangosAprobados?.minimo} – ${rangosAprobados?.maximo}*
-_(Se descuenta entre 15% y 20% por gastos de titulación)_
+🎉 *Tu monto aprobado para mejoras con Mejoravit es ${rangoTexto}.*
 
 Un asesor se comunicará contigo en breve. 😊`;
+}
+
+function normalizarNumero(value: number | string | undefined): number {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  if (typeof value !== "string") return 0;
+
+  const limpio = value.replace(/[^0-9.]/g, "");
+  const num = Number(limpio);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function formatearMoneda(value: number): string {
+  return `$${value.toLocaleString("es-MX")}`;
 }
 
 function buildMensajeRechazado(resultado: ResultadoPrecalificacion) {
