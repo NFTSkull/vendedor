@@ -2,6 +2,7 @@
 export interface WhatsAppTextInbound {
   from: string;
   body: string;
+  wamid: string | null;
 }
 
 function recolectarValor(value: Record<string, unknown>): WhatsAppTextInbound[] {
@@ -20,7 +21,8 @@ function recolectarValor(value: Record<string, unknown>): WhatsAppTextInbound[] 
     if (!text || typeof text !== "object") continue;
     const body = (text as Record<string, unknown>).body;
     if (typeof body !== "string" || !body.trim()) continue;
-    out.push({ from: from.trim(), body: body.trim() });
+    const wamid = typeof m.id === "string" ? m.id : null;
+    out.push({ from: from.trim(), body: body.trim(), wamid });
   }
   return out;
 }

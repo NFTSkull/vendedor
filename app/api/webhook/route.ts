@@ -13,6 +13,7 @@ import { extraerTextosEntrantes } from "@/lib/parseWhatsAppWebhook";
 import { enviarMensajeTextoWa } from "@/lib/whatsappCloud";
 
 export const runtime = "nodejs";
+const ultimoWamidPorTelefono = new Map<string, string>();
 
 export async function GET(req: NextRequest): Promise<Response> {
   const verified = getMetaWebhookVerificationResponse(
@@ -41,18 +42,29 @@ export async function POST(req: NextRequest): Promise<Response> {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const graphVersion =
     process.env.WHATSAPP_GRAPH_API_VERSION ?? process.env.GRAPH_API_VERSION;
+  const ack = Response.json({}, { status: 200 });
 
-  try {
+  queueMicrotask(() => {
+    void (async () => {
     if (!accessToken || !phoneNumberId) {
       console.error(
         "Faltan WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID en el entorno",
       );
-      return Response.json({}, { status: 200 });
+      return;
     }
 
     const mensajes = extraerTextosEntrantes(payload);
 
     for (const m of mensajes) {
+      if (m.wamid) {
+        const ultimo = ultimoWamidPorTelefono.get(m.from);
+        if (ultimo === m.wamid) {
+          console.log("[WEBHOOK_DEBUG] mensaje duplicado ignorado:", m.wamid);
+          continue;
+        }
+        ultimoWamidPorTelefono.set(m.from, m.wamid);
+      }
+
       console.log("[WEBHOOK_DEBUG] from extraído (parseWhatsAppWebhook):", m.from);
 
       let leadChat = null;
@@ -110,9 +122,10 @@ export async function POST(req: NextRequest): Promise<Response> {
         console.error("[WhatsApp send]", envio.status, envio.data);
       }
     }
-  } catch (err) {
-    console.error("[webhook POST]", err);
-  }
+    })().catch((err) => {
+      console.error("[webhook POST]", err);
+    });
+  });
 
-  return Response.json({}, { status: 200 });
+  return ack;
 }

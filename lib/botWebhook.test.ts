@@ -31,6 +31,7 @@ describe("extraerTextosEntrantes", () => {
               value: {
                 messages: [
                   {
+                    id: "wamid.HBgLMjE...",
                     from: "521234567890",
                     type: "text",
                     text: { body: "Hola mundo" },
@@ -43,7 +44,7 @@ describe("extraerTextosEntrantes", () => {
       ],
     };
     expect(extraerTextosEntrantes(body)).toEqual([
-      { from: "521234567890", body: "Hola mundo" },
+      { from: "521234567890", body: "Hola mundo", wamid: "wamid.HBgLMjE..." },
     ]);
   });
 
