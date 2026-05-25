@@ -5,7 +5,6 @@ export type BotRuntimeState =
   | "esperando_labor_vigente"
   | "esperando_infonavit"
   | "esperando_credito_activo"
-  | "esperando_centro_trabajo"
   | "esperando_datos"
   | "esperando_horario"
   | "finalizado";

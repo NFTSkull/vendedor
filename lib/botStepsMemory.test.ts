@@ -59,7 +59,6 @@ const FLUJO_SI = [
   "si",
   "SI",
   "no",
-  "si",
   "12345678901",
   "Martes 10am",
 ] as const;
@@ -109,8 +108,8 @@ describe("botSteps memoria Map", () => {
       expect(reply).toBeTruthy();
     }
 
-    expect(reply).toContain("8114118767");
     expect(reply).toContain("8140100246");
+    expect(reply).not.toContain("8114118767");
 
     expect(logSpy).toHaveBeenCalledWith("[lead confirmado]", {
       phone: p,
@@ -142,7 +141,6 @@ describe("botSteps memoria Map", () => {
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
 
     const reply = await procesarYEvolucionar({
       phone: p,
@@ -201,7 +199,6 @@ describe("botSteps memoria Map", () => {
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
 
     const reply = await procesarYEvolucionar({
       phone: p,
@@ -218,7 +215,6 @@ describe("botSteps memoria Map", () => {
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
 
     const reply = await procesarYEvolucionar({
       phone: p,

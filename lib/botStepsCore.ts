@@ -12,7 +12,6 @@ export type BotState =
   | "esperando_labor_vigente"
   | "esperando_infonavit"
   | "esperando_credito_activo"
-  | "esperando_centro_trabajo"
   | "esperando_datos"
   | "esperando_horario"
   | "finalizado";
@@ -42,13 +41,6 @@ export const MSG_CREDITO_ACTIVO =
 export const MSG_RECHAZO_CREDITO_ACTIVO =
   "Es necesario que termines de pagar tu crédito Infonavit actual para poder continuar con este trámite.";
 
-export const MSG_CENTRO_TRABAJO =
-  "¿Tu centro de trabajo está en Nuevo León?";
-
-export const MSG_RECHAZO_CENTRO_TRABAJO =
-  "Lo sentimos, este es un requisito indispensable para obtener el crédito.\n\n" +
-  "Actualmente este apoyo está disponible solo para Nuevo León.";
-
 export const MSG_SOLICITUD_DATOS =
   "Compárteme tu Número de Seguro Social (NSS) para darte el monto autorizado.";
 
@@ -58,8 +50,7 @@ export const MSG_MONTO_Y_HORARIO =
 
 export const MSG_FINAL =
   "Gracias. Un asesor se pondrá en contacto contigo en el horario que nos indicaste.\n\n" +
-  "También puedes comunicarte directamente a estos números:\n\n" +
-  "8114118767\n" +
+  "También puedes comunicarte directamente a este número:\n\n" +
   "8140100246";
 
 const MSG_NSS_INVALIDO =
@@ -138,8 +129,6 @@ export function preguntaDelEstado(state: BotState): string {
       return MSG_INFONAVIT;
     case "esperando_credito_activo":
       return MSG_CREDITO_ACTIVO;
-    case "esperando_centro_trabajo":
-      return MSG_CENTRO_TRABAJO;
     case "esperando_datos":
       return MSG_SOLICITUD_DATOS;
     case "esperando_horario":
@@ -155,8 +144,7 @@ export function tipoEsperadoDelEstado(
   if (
     state === "esperando_labor_vigente" ||
     state === "esperando_infonavit" ||
-    state === "esperando_credito_activo" ||
-    state === "esperando_centro_trabajo"
+    state === "esperando_credito_activo"
   ) {
     return "si_no";
   }
@@ -301,28 +289,13 @@ export async function ejecutarPasoCore(args: {
         async () => rechazar(phone, MSG_RECHAZO_CREDITO_ACTIVO),
         async () => {
           await setConversation(phone, {
-            state: "esperando_centro_trabajo",
-            name: null,
-            nss: null,
-          });
-          return exacto(MSG_CENTRO_TRABAJO);
-        },
-        exacto(MSG_CREDITO_ACTIVO),
-      );
-    case "esperando_centro_trabajo":
-      return await responderSiNoCore(
-        texto,
-        entrada,
-        async () => {
-          await setConversation(phone, {
             state: "esperando_datos",
             name: null,
             nss: null,
           });
           return exacto(MSG_SOLICITUD_DATOS);
         },
-        async () => rechazar(phone, MSG_RECHAZO_CENTRO_TRABAJO),
-        exacto(MSG_CENTRO_TRABAJO),
+        exacto(MSG_CREDITO_ACTIVO),
       );
     case "esperando_datos": {
       const digitosTexto = texto.replace(/\D/g, "");
