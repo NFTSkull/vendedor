@@ -14,6 +14,7 @@
 - `lib/botStepsMemory.test.ts`: se mockea fetch de scraper y se actualizan aserciones para validar rango dinámico en respuesta del paso NSS.
 - `lib/parseWhatsAppWebhook.ts`: `extraerTextosEntrantes` ahora extrae también `wamid` (id del mensaje entrante) para permitir deduplicación en webhook.
 - `app/api/webhook/route.ts`: se cambió a ACK inmediato (`200`) con procesamiento asíncrono y se agregó deduplicación en memoria por `wamid` y teléfono para ignorar reintentos duplicados de Meta.
+- `app/api/webhook/route.ts`: se revierte `queueMicrotask` para volver a procesamiento síncrono con `await` dentro de `POST /api/webhook`; se mantiene únicamente la deduplicación por `wamid`.
 - Estado `finalizado` con manejo post-flujo vía `__POST_FLUJO__` y llamada directa a Anthropic; se eliminó reinicio automático al recibir mensajes tras completar registro.
 - Claude ahora interpreta respuestas naturales con prompt más estricto y ejemplos explícitos; `procesarYEvolucionar` unificado para usar una sola vía de interpretación y responder fuera de tema sin reglas heurísticas de longitud.
 - Estado del bot persistido en Supabase (`conversations`): lectura con `maybeSingle` sin insert por defecto, escritura con `upsert` y caché `Map` por request; corrige pérdida de estado entre instancias Vercel.

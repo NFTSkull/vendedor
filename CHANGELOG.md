@@ -14,6 +14,7 @@
 - **Espera visible en WhatsApp:** el webhook envía «Un momento, estoy consultando tu información en Infonavit... ⏳» antes de procesar la consulta de NSS para evitar abandono por silencio.
 - **Webhook robusto ante reintentos de Meta:** `POST /api/webhook` ahora responde `200` inmediatamente y procesa en segundo plano para reducir duplicados por timeout de entrega.
 - **Deduplicación por WAMID:** los mensajes entrantes incluyen `wamid` y se ignoran reintentos con el mismo ID por conversación para evitar doble consulta al scraper.
+- **Webhook en modo síncrono (await):** se revierte el procesamiento en background con `queueMicrotask` y se vuelve a procesar el mensaje dentro del `POST`; se conserva la deduplicación por `wamid`.
 
 - **Post-flujo:** cuando el estado es `finalizado`, ya no se reinicia el embudo; Claude responde mensajes posteriores (gracias, dudas, despedida) sin reiniciar la conversación.
 

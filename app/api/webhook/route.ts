@@ -42,90 +42,81 @@ export async function POST(req: NextRequest): Promise<Response> {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const graphVersion =
     process.env.WHATSAPP_GRAPH_API_VERSION ?? process.env.GRAPH_API_VERSION;
-  const ack = Response.json({}, { status: 200 });
+  const mensajes = extraerTextosEntrantes(payload);
+  if (!accessToken || !phoneNumberId) {
+    console.error(
+      "Faltan WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID en el entorno",
+    );
+    return Response.json({}, { status: 200 });
+  }
 
-  queueMicrotask(() => {
-    void (async () => {
-    if (!accessToken || !phoneNumberId) {
-      console.error(
-        "Faltan WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID en el entorno",
-      );
-      return;
-    }
-
-    const mensajes = extraerTextosEntrantes(payload);
-
-    for (const m of mensajes) {
-      if (m.wamid) {
-        const ultimo = ultimoWamidPorTelefono.get(m.from);
-        if (ultimo === m.wamid) {
-          console.log("[WEBHOOK_DEBUG] mensaje duplicado ignorado:", m.wamid);
-          continue;
-        }
-        ultimoWamidPorTelefono.set(m.from, m.wamid);
-      }
-
-      console.log("[WEBHOOK_DEBUG] from extraído (parseWhatsAppWebhook):", m.from);
-
-      let leadChat = null;
-      try {
-        leadChat = await buscarLeadPorTelefono(m.from);
-        if (leadChat && leadEnModoChat(leadChat.estado)) {
-          await guardarMensaje({
-            leadId: leadChat.id,
-            direccion: "entrante",
-            contenido: m.body,
-          });
-        }
-      } catch (err) {
-        console.error("[webhook] Error guardando mensaje entrante:", err);
-      }
-
-      if (leadChat?.estado === "contactado") {
+  for (const m of mensajes) {
+    if (m.wamid) {
+      const ultimo = ultimoWamidPorTelefono.get(m.from);
+      if (ultimo === m.wamid) {
+        console.log("[WEBHOOK_DEBUG] mensaje duplicado ignorado:", m.wamid);
         continue;
       }
+      ultimoWamidPorTelefono.set(m.from, m.wamid);
+    }
 
-      const conversacionAntes = await getConversation(m.from);
-      if (
-        conversacionAntes.state === "esperando_datos" &&
-        extraerNssOnceDigitos(m.body)
-      ) {
-        const espera = await enviarMensajeTextoWa({
-          phoneNumberId,
-          accessToken,
-          graphVersion,
-          to: m.from,
-          body: "Un momento, estoy consultando tu información en Infonavit... ⏳",
+    console.log("[WEBHOOK_DEBUG] from extraído (parseWhatsAppWebhook):", m.from);
+
+    let leadChat = null;
+    try {
+      leadChat = await buscarLeadPorTelefono(m.from);
+      if (leadChat && leadEnModoChat(leadChat.estado)) {
+        await guardarMensaje({
+          leadId: leadChat.id,
+          direccion: "entrante",
+          contenido: m.body,
         });
-        if (!espera.ok) {
-          console.error("[WhatsApp wait]", espera.status, espera.data);
-        }
       }
+    } catch (err) {
+      console.error("[webhook] Error guardando mensaje entrante:", err);
+    }
 
-      const reply = await procesarYEvolucionar({
-        phone: m.from,
-        textoUsuario: m.body,
-      });
+    if (leadChat?.estado === "contactado") {
+      continue;
+    }
 
-      if (!reply) continue;
-
-      console.log("[WEBHOOK_DEBUG] to usado en Graph (enviarMensajeTextoWa):", m.from);
-
-      const envio = await enviarMensajeTextoWa({
+    const conversacionAntes = await getConversation(m.from);
+    if (
+      conversacionAntes.state === "esperando_datos" &&
+      extraerNssOnceDigitos(m.body)
+    ) {
+      const espera = await enviarMensajeTextoWa({
         phoneNumberId,
         accessToken,
         graphVersion,
         to: m.from,
-        body: reply,
+        body: "Un momento, estoy consultando tu información en Infonavit... ⏳",
       });
-      if (!envio.ok) {
-        console.error("[WhatsApp send]", envio.status, envio.data);
+      if (!espera.ok) {
+        console.error("[WhatsApp wait]", espera.status, espera.data);
       }
     }
-    })().catch((err) => {
-      console.error("[webhook POST]", err);
-    });
-  });
 
-  return ack;
+    const reply = await procesarYEvolucionar({
+      phone: m.from,
+      textoUsuario: m.body,
+    });
+
+    if (!reply) continue;
+
+    console.log("[WEBHOOK_DEBUG] to usado en Graph (enviarMensajeTextoWa):", m.from);
+
+    const envio = await enviarMensajeTextoWa({
+      phoneNumberId,
+      accessToken,
+      graphVersion,
+      to: m.from,
+      body: reply,
+    });
+    if (!envio.ok) {
+      console.error("[WhatsApp send]", envio.status, envio.data);
+    }
+  }
+
+  return Response.json({}, { status: 200 });
 }
