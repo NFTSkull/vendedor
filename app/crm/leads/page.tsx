@@ -377,6 +377,11 @@ export default function CrmLeadsPage() {
                   ? "Consultando Infonavit..."
                   : "Consultar precalificación"}
               </button>
+              {precalificando ? (
+                <p className="text-sm text-slate-600">
+                  Consultando Infonavit... esto puede tardar hasta 2 minutos.
+                </p>
+              ) : null}
             </form>
 
             {resultado ? (

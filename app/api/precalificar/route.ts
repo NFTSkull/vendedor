@@ -59,15 +59,22 @@ export async function POST(request: Request) {
       );
     }
 
-    const scraperRes = await fetch(`${SCRAPER_URL}/precalificar`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-scraper-secret": SCRAPER_SECRET,
-      },
-      body: JSON.stringify({ nss }),
-      signal: AbortSignal.timeout(90000),
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 180000);
+    let scraperRes: Response;
+    try {
+      scraperRes = await fetch(`${SCRAPER_URL}/precalificar`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-scraper-secret": SCRAPER_SECRET,
+        },
+        body: JSON.stringify({ nss }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!scraperRes.ok) {
       throw new Error(`Scraper error: ${scraperRes.status}`);
