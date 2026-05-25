@@ -15,6 +15,7 @@
 - **Webhook robusto ante reintentos de Meta:** `POST /api/webhook` ahora responde `200` inmediatamente y procesa en segundo plano para reducir duplicados por timeout de entrega.
 - **Deduplicación por WAMID:** los mensajes entrantes incluyen `wamid` y se ignoran reintentos con el mismo ID por conversación para evitar doble consulta al scraper.
 - **Webhook en modo síncrono (await):** se revierte el procesamiento en background con `queueMicrotask` y se vuelve a procesar el mensaje dentro del `POST`; se conserva la deduplicación por `wamid`.
+- **Persistencia de montos de precalificación en leads:** al cerrar horario desde bot se guardan `saldo_subcuenta`, `monto_base` (`*0.9`), `monto_aprobado_min` y `monto_aprobado_max` calculados desde `saldoSubcuenta`; listado CRM ahora muestra esos tres valores por lead.
 
 - **Post-flujo:** cuando el estado es `finalizado`, ya no se reinicia el embudo; Claude responde mensajes posteriores (gracias, dudas, despedida) sin reiniciar la conversación.
 

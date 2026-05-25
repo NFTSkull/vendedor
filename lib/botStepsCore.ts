@@ -76,6 +76,18 @@ type RespuestaScraper = {
   };
 };
 
+type DatosPrecalificacionAprobada = {
+  saldoSubcuentaRaw: number | string;
+  montoBase: number;
+  montoAprobadoMin: number;
+  montoAprobadoMax: number;
+};
+
+const datosPrecalificacionPorTelefono = new Map<
+  string,
+  DatosPrecalificacionAprobada
+>();
+
 function parseNumero(value: number | string | undefined): number {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   if (typeof value !== "string") return 0;
@@ -165,6 +177,7 @@ function exacto(texto: string): ResultadoPaso {
 }
 
 async function rechazar(phone: string, mensaje: string): Promise<ResultadoPaso> {
+  datosPrecalificacionPorTelefono.delete(phone);
   await setConversation(phone, {
     state: "finalizado",
     name: null,
@@ -187,12 +200,29 @@ async function responderSiNoCore(
   return reintento;
 }
 
-async function guardarLead(phone: string, nss: string, horario: string) {
+async function guardarLead(
+  phone: string,
+  nss: string,
+  horario: string,
+  datosPrecalificacion?: DatosPrecalificacionAprobada,
+) {
   try {
     const supabase = getSupabaseAdmin();
+    const leadPayload: Record<string, unknown> = {
+      whatsapp_phone: phone,
+      nss,
+      horario,
+      estado: "nuevo",
+    };
+    if (datosPrecalificacion) {
+      leadPayload.saldo_subcuenta = datosPrecalificacion.saldoSubcuentaRaw;
+      leadPayload.monto_base = datosPrecalificacion.montoBase;
+      leadPayload.monto_aprobado_min = datosPrecalificacion.montoAprobadoMin;
+      leadPayload.monto_aprobado_max = datosPrecalificacion.montoAprobadoMax;
+    }
     const { error } = await supabase
       .from("leads")
-      .insert({ whatsapp_phone: phone, nss, horario, estado: "nuevo" });
+      .insert(leadPayload);
 
     if (error) console.error("[Supabase] Error guardando lead:", error);
     else console.log("[Supabase] Lead guardado:", { phone, nss, horario });
@@ -202,6 +232,7 @@ async function guardarLead(phone: string, nss: string, horario: string) {
 }
 
 export async function reiniciarFlujoCore(phone: string): Promise<ResultadoPaso> {
+  datosPrecalificacionPorTelefono.delete(phone);
   await deleteConversation(phone);
   await setConversation(phone, {
     state: "esperando_labor_vigente",
@@ -308,6 +339,7 @@ export async function ejecutarPasoCore(args: {
         name: null,
         nss: null,
       });
+      datosPrecalificacionPorTelefono.delete(phone);
       console.log("[lead confirmado]", {
         phone,
         name: null,
@@ -315,13 +347,23 @@ export async function ejecutarPasoCore(args: {
       });
       try {
         const resultado = await consultarPrecalificacionScraper(nss);
-        const montoBase = parseNumero(
-          resultado.montoCredito ?? resultado.datos?.montoCredito,
-        );
+        const saldoSubcuentaRaw = resultado.datos?.saldoSubcuenta;
+        const saldoSubcuenta = parseNumero(saldoSubcuentaRaw);
         const success = resultado.success === true || resultado.califica === true;
-        if (success && montoBase > 0) {
-          const min = Math.floor(montoBase * 0.9 * 0.8);
-          const max = Math.floor((montoBase * 0.9) / 0.85);
+        if (
+          success &&
+          saldoSubcuenta > 0 &&
+          (typeof saldoSubcuentaRaw === "number" || typeof saldoSubcuentaRaw === "string")
+        ) {
+          const montoBase = Math.floor(saldoSubcuenta * 0.9);
+          const min = Math.floor(saldoSubcuenta * 0.9 * 0.8);
+          const max = Math.floor((saldoSubcuenta * 0.9) / 0.85);
+          datosPrecalificacionPorTelefono.set(phone, {
+            saldoSubcuentaRaw,
+            montoBase,
+            montoAprobadoMin: min,
+            montoAprobadoMax: max,
+          });
           await setConversation(phone, {
             state: "esperando_horario",
             name: null,
@@ -359,7 +401,9 @@ export async function ejecutarPasoCore(args: {
             MSG_MONTO_Y_HORARIO,
         );
       }
-      await guardarLead(phone, row.nss, texto);
+      const datosPrecalificacion = datosPrecalificacionPorTelefono.get(phone);
+      await guardarLead(phone, row.nss, texto, datosPrecalificacion);
+      datosPrecalificacionPorTelefono.delete(phone);
 
       await setConversation(phone, {
         state: "finalizado",

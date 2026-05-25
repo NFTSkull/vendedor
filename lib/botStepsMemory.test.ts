@@ -7,13 +7,17 @@ const conversationsStore = new Map<
   string,
   { state: string; nss: string | null }
 >();
+const leadsInsertRows: Array<Record<string, unknown>> = [];
 
 vi.mock("@/lib/supabaseAdmin", () => ({
   getSupabaseAdmin: () => ({
     from: (table: string) => {
       if (table === "leads") {
         return {
-          insert: vi.fn().mockResolvedValue({ error: null }),
+          insert: vi.fn().mockImplementation(async (row: Record<string, unknown>) => {
+            leadsInsertRows.push(row);
+            return { error: null };
+          }),
         };
       }
       if (table === "conversations") {
@@ -75,7 +79,9 @@ describe("botSteps memoria Map", () => {
           return new Response(
             JSON.stringify({
               success: true,
-              montoCredito: 100000,
+              datos: {
+                saldoSubcuenta: 100000,
+              },
             }),
             { status: 200 },
           );
@@ -89,6 +95,7 @@ describe("botSteps memoria Map", () => {
     vi.unstubAllGlobals();
     conversationMemory.clear();
     conversationsStore.clear();
+    leadsInsertRows.length = 0;
   });
 
   it("flujo completo hasta cierre con asesor y logea lead", async () => {
@@ -114,6 +121,16 @@ describe("botSteps memoria Map", () => {
       phone: p,
       nss: "12345678901",
       horario: "Martes 10am",
+    });
+    expect(leadsInsertRows[0]).toMatchObject({
+      whatsapp_phone: p,
+      nss: "12345678901",
+      horario: "Martes 10am",
+      estado: "nuevo",
+      saldo_subcuenta: 100000,
+      monto_base: 90000,
+      monto_aprobado_min: 72000,
+      monto_aprobado_max: 105882,
     });
 
     logSpy.mockRestore();

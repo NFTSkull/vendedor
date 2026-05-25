@@ -24,6 +24,10 @@ type Lead = {
   estado: LeadEstado;
   created_at: string;
   precalificacion_status: "aprobado" | "rechazado" | "pendiente" | null;
+  saldo_subcuenta: number | string | null;
+  monto_base: number | string | null;
+  monto_aprobado_min: number | string | null;
+  monto_aprobado_max: number | string | null;
 };
 
 function estadoBadge(estado: LeadEstado): string {
@@ -34,6 +38,25 @@ function estadoBadge(estado: LeadEstado): string {
     return "bg-slate-100 text-slate-700 border-slate-200";
   }
   return "bg-blue-100 text-blue-700 border-blue-200";
+}
+
+function resumenPrecalificacionLead(lead: Lead): {
+  saldoSubcuenta: string;
+  montoBase: string;
+  rangoAprobado: string;
+} {
+  const saldoSubcuenta = normalizarNumero(lead.saldo_subcuenta ?? undefined);
+  const montoBase = normalizarNumero(lead.monto_base ?? undefined);
+  const montoMin = normalizarNumero(lead.monto_aprobado_min ?? undefined);
+  const montoMax = normalizarNumero(lead.monto_aprobado_max ?? undefined);
+  return {
+    saldoSubcuenta: saldoSubcuenta > 0 ? formatearMoneda(saldoSubcuenta) : "Sin dato",
+    montoBase: montoBase > 0 ? formatearMoneda(montoBase) : "Sin dato",
+    rangoAprobado:
+      montoMin > 0 && montoMax > 0
+        ? `${formatearMoneda(montoMin)} – ${formatearMoneda(montoMax)}`
+        : "Sin dato",
+  };
 }
 
 export default function CrmLeadsPage() {
@@ -224,13 +247,14 @@ export default function CrmLeadsPage() {
                     <th className="text-left p-3">NSS</th>
                     <th className="text-left p-3">Horario</th>
                     <th className="text-left p-3">Estado</th>
+                    <th className="text-left p-3">Precalificación</th>
                     <th className="text-left p-3">Fecha</th>
                     <th className="text-left p-3">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
                   {leads.map((lead) => (
-                    <tr key={lead.id} className="border-t border-slate-100">
+                    <tr key={lead.id} className="border-t border-slate-100 align-top">
                       <td className="p-3">{lead.whatsapp_phone}</td>
                       <td className="p-3">{lead.nss ?? "—"}</td>
                       <td className="p-3">{lead.horario}</td>
@@ -242,6 +266,27 @@ export default function CrmLeadsPage() {
                         >
                           {lead.estado}
                         </span>
+                      </td>
+                      <td className="p-3 text-xs text-slate-700">
+                        {(() => {
+                          const resumen = resumenPrecalificacionLead(lead);
+                          return (
+                            <div className="space-y-1">
+                              <p>
+                                <span className="font-medium">Saldo subcuenta:</span>{" "}
+                                {resumen.saldoSubcuenta}
+                              </p>
+                              <p>
+                                <span className="font-medium">Después de descuento (×0.9):</span>{" "}
+                                {resumen.montoBase}
+                              </p>
+                              <p>
+                                <span className="font-medium">Rango aprobado:</span>{" "}
+                                {resumen.rangoAprobado}
+                              </p>
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="p-3">
                         {new Date(lead.created_at).toLocaleString("es-MX")}
@@ -262,6 +307,9 @@ export default function CrmLeadsPage() {
 
             <section className="md:hidden grid gap-3">
               {leads.map((lead) => (
+                (() => {
+                  const resumen = resumenPrecalificacionLead(lead);
+                  return (
                 <article
                   key={lead.id}
                   className="rounded-xl border border-slate-200 bg-white p-4"
@@ -289,6 +337,18 @@ export default function CrmLeadsPage() {
                       <span className="font-medium">Fecha:</span>{" "}
                       {new Date(lead.created_at).toLocaleString("es-MX")}
                     </p>
+                    <p>
+                      <span className="font-medium">Saldo subcuenta:</span>{" "}
+                      {resumen.saldoSubcuenta}
+                    </p>
+                    <p>
+                      <span className="font-medium">Después de descuento (×0.9):</span>{" "}
+                      {resumen.montoBase}
+                    </p>
+                    <p>
+                      <span className="font-medium">Rango aprobado:</span>{" "}
+                      {resumen.rangoAprobado}
+                    </p>
                   </div>
 
                   <Link
@@ -298,6 +358,8 @@ export default function CrmLeadsPage() {
                     Ver
                   </Link>
                 </article>
+                  );
+                })()
               ))}
             </section>
           </>

@@ -15,6 +15,9 @@
 - `lib/parseWhatsAppWebhook.ts`: `extraerTextosEntrantes` ahora extrae también `wamid` (id del mensaje entrante) para permitir deduplicación en webhook.
 - `app/api/webhook/route.ts`: se cambió a ACK inmediato (`200`) con procesamiento asíncrono y se agregó deduplicación en memoria por `wamid` y teléfono para ignorar reintentos duplicados de Meta.
 - `app/api/webhook/route.ts`: se revierte `queueMicrotask` para volver a procesamiento síncrono con `await` dentro de `POST /api/webhook`; se mantiene únicamente la deduplicación por `wamid`.
+- `lib/botStepsCore.ts`: en éxito de scraper por bot se toma `saldoSubcuenta` como base y se cachean por teléfono `saldo_subcuenta` (raw), `monto_base`, `monto_aprobado_min` y `monto_aprobado_max`; al guardar lead tras capturar horario se insertan esos campos junto con `nss/horario`.
+- `app/crm/leads/page.tsx`: el listado (tabla y cards) muestra por lead `Saldo subcuenta`, `Después de descuento (×0.9)` y `Rango aprobado`.
+- `lib/botStepsMemory.test.ts`: mock de `leads.insert` captura payload y valida persistencia de los cuatro campos nuevos en flujo exitoso.
 - Estado `finalizado` con manejo post-flujo vía `__POST_FLUJO__` y llamada directa a Anthropic; se eliminó reinicio automático al recibir mensajes tras completar registro.
 - Claude ahora interpreta respuestas naturales con prompt más estricto y ejemplos explícitos; `procesarYEvolucionar` unificado para usar una sola vía de interpretación y responder fuera de tema sin reglas heurísticas de longitud.
 - Estado del bot persistido en Supabase (`conversations`): lectura con `maybeSingle` sin insert por defecto, escritura con `upsert` y caché `Map` por request; corrige pérdida de estado entre instancias Vercel.
