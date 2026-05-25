@@ -22,9 +22,6 @@ export const conversationMemory = new Map<string, ConversationValue>();
 export async function getConversation(
   phone: string,
 ): Promise<ConversationValue> {
-  const cached = conversationMemory.get(phone);
-  if (cached) return cached;
-
   try {
     const supabase = getSupabaseAdmin();
     const { data } = await supabase
@@ -42,6 +39,8 @@ export async function getConversation(
       conversationMemory.set(phone, val);
       return val;
     }
+
+    conversationMemory.delete(phone);
   } catch (err) {
     console.error("[conversationMemory] Error leyendo Supabase:", err);
   }
