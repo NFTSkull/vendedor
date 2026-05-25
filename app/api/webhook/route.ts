@@ -7,8 +7,8 @@ import {
   guardarMensaje,
   leadEnModoChat,
 } from "@/lib/messagesDb";
-import { dispararPrecalificacion } from "@/lib/precalificarTrigger";
 import { getMetaWebhookVerificationResponse } from "@/lib/metaWebhookVerification";
+import { extraerNssOnceDigitos } from "@/lib/nss";
 import { extraerTextosEntrantes } from "@/lib/parseWhatsAppWebhook";
 import { enviarMensajeTextoWa } from "@/lib/whatsappCloud";
 
@@ -74,23 +74,26 @@ export async function POST(req: NextRequest): Promise<Response> {
       }
 
       const conversacionAntes = await getConversation(m.from);
+      if (
+        conversacionAntes.state === "esperando_datos" &&
+        extraerNssOnceDigitos(m.body)
+      ) {
+        const espera = await enviarMensajeTextoWa({
+          phoneNumberId,
+          accessToken,
+          graphVersion,
+          to: m.from,
+          body: "Un momento, estoy consultando tu información en Infonavit... ⏳",
+        });
+        if (!espera.ok) {
+          console.error("[WhatsApp wait]", espera.status, espera.data);
+        }
+      }
 
       const reply = await procesarYEvolucionar({
         phone: m.from,
         textoUsuario: m.body,
       });
-
-      const conversacion = await getConversation(m.from);
-      if (
-        !conversacionAntes.nss &&
-        conversacion.nss &&
-        conversacion.state === "esperando_horario"
-      ) {
-        await dispararPrecalificacion({
-          nss: conversacion.nss,
-          phoneNumber: m.from,
-        });
-      }
 
       if (!reply) continue;
 

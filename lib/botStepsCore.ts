@@ -66,6 +66,58 @@ const MSG_NSS_INVALIDO =
   "Necesito un número de seguro social (IMSS) de 11 dígitos. Intenta de nuevo.\n\n" +
   MSG_SOLICITUD_DATOS;
 
+type RespuestaScraper = {
+  success?: boolean;
+  califica?: boolean;
+  montoCredito?: number | string;
+  datos?: {
+    montoCredito?: number | string;
+    saldoSubcuenta?: number | string;
+  };
+};
+
+function parseNumero(value: number | string | undefined): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value !== "string") return 0;
+  const limpio = value.replace(/[^0-9.]/g, "");
+  const parsed = Number(limpio);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatMoneda(value: number): string {
+  return `$${Math.floor(value).toLocaleString("es-MX")}`;
+}
+
+async function consultarPrecalificacionScraper(
+  nss: string,
+): Promise<RespuestaScraper> {
+  const scraperUrl = process.env.SCRAPER_URL || process.env.SCRAPER_SERVICE_URL;
+  const scraperSecret = process.env.SCRAPER_SECRET;
+  if (!scraperUrl || !scraperSecret) {
+    throw new Error("SCRAPER_NO_CONFIGURADO");
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 180000);
+  try {
+    const res = await fetch(`${scraperUrl}/precalificar`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-scraper-secret": scraperSecret,
+      },
+      body: JSON.stringify({ nss, workerIndex: 0 }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`SCRAPER_HTTP_${res.status}`);
+    }
+    return (await res.json()) as RespuestaScraper;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export function preguntaDelEstado(state: BotState): string {
   switch (state) {
     case "esperando_labor_vigente":
@@ -252,16 +304,48 @@ export async function ejecutarPasoCore(args: {
         return exacto(MSG_NSS_INVALIDO);
       }
       await setConversation(phone, {
-        state: "esperando_horario",
+        state: "esperando_datos",
         name: null,
-        nss,
+        nss: null,
       });
       console.log("[lead confirmado]", {
         phone,
         name: null,
         nss,
       });
-      return exacto(MSG_MONTO_Y_HORARIO);
+      try {
+        const resultado = await consultarPrecalificacionScraper(nss);
+        const montoBase = parseNumero(
+          resultado.montoCredito ?? resultado.datos?.montoCredito,
+        );
+        const success = resultado.success === true || resultado.califica === true;
+        if (success && montoBase > 0) {
+          const min = Math.floor(montoBase * 0.9 * 0.8);
+          const max = Math.floor((montoBase * 0.9) / 0.85);
+          await setConversation(phone, {
+            state: "esperando_horario",
+            name: null,
+            nss,
+          });
+          return exacto(
+            `Tu monto autorizado es aproximadamente de:\n${formatMoneda(min)} a ${formatMoneda(max)} 🏠\n¿En qué día y horario te podemos contactar?`,
+          );
+        }
+
+        if (resultado.success === false || resultado.califica === false) {
+          return exacto(
+            "Lo sentimos, en este momento no calificas para el crédito Mejoravit. Si tienes dudas, uno de nuestros asesores puede orientarte. ¿Te gustaría que te contactemos?",
+          );
+        }
+
+        return exacto(
+          "Tuvimos un problema consultando tu información. ¿Puedes intentarlo de nuevo en unos minutos?",
+        );
+      } catch {
+        return exacto(
+          "Tuvimos un problema consultando tu información. ¿Puedes intentarlo de nuevo en unos minutos?",
+        );
+      }
     }
     case "esperando_horario": {
       if (!row.nss) {

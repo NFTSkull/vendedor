@@ -65,9 +65,28 @@ describe("botSteps memoria Map", () => {
     delete process.env.ANTHROPIC_API_KEY;
     process.env.SUPABASE_URL = "https://example.supabase.co";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role";
+    process.env.SCRAPER_URL = "https://scraper.test";
+    process.env.SCRAPER_SECRET = "secret";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/precalificar")) {
+          return new Response(
+            JSON.stringify({
+              success: true,
+              montoCredito: 100000,
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response("{}", { status: 200 });
+      }),
+    );
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     conversationMemory.clear();
     conversationsStore.clear();
   });
@@ -100,7 +119,7 @@ describe("botSteps memoria Map", () => {
     logSpy.mockRestore();
   });
 
-  it("muestra monto con línea en blanco y pregunta horario, sin cantidad fija", async () => {
+  it("consulta scraper y muestra rango dinámico antes de pedir horario", async () => {
     const p = "5233333333333";
     await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
@@ -113,11 +132,10 @@ describe("botSteps memoria Map", () => {
       textoUsuario: "09876543210",
     });
 
-    expect(reply).toContain("aproximadamente de ___");
+    expect(reply).toContain("Tu monto autorizado es aproximadamente de:");
+    expect(reply).toContain("$72,000");
+    expect(reply).toContain("$105,882");
     expect(reply).toContain("día y horario");
-    expect(reply).not.toMatch(/\$169,?000/);
-    expect(reply).not.toMatch(/MXN/);
-    expect(reply).not.toContain("puede variar");
   });
 
   it("rechaza sin relación laboral vigente", async () => {
@@ -173,7 +191,7 @@ describe("botSteps memoria Map", () => {
       textoUsuario: "01234567890",
     });
 
-    expect(reply).toContain("aproximadamente de ___");
+    expect(reply).toContain("Tu monto autorizado es aproximadamente de:");
     expect(conversationMemory.get(p)?.nss).toBe("01234567890");
   });
 

@@ -9,6 +9,9 @@
 - `/crm/leads`: botón `Precalificar` en cabecera abre modal con captura de NSS; ejecuta `/api/precalificar` con `source: "crm"` y muestra badge/resultado en el mismo modal. `phoneNumber` es opcional en CRM (se usa `crm-{nss}` si no se indica teléfono).
 - `app/api/precalificar/route.ts`: fetch al scraper migrado de `AbortSignal.timeout(90000)` a `AbortController` de 180000ms para soportar consultas largas (proxy/CAPTCHA) sin `The operation was aborted due to timeout`.
 - `app/crm/leads/page.tsx`: en el modal, durante `precalificando`, se añade texto de espera explícito («Consultando Infonavit... esto puede tardar hasta 2 minutos»).
+- `lib/botStepsCore.ts`: el estado `esperando_datos` ahora consulta `SCRAPER_URL` en línea con `AbortController` de 180000ms, calcula rango desde `montoCredito` y solo avanza a `esperando_horario` en éxito.
+- `app/api/webhook/route.ts`: al detectar NSS válido en `esperando_datos` se envía mensaje previo de espera al usuario y se eliminó el disparo asíncrono `dispararPrecalificacion` para evitar doble consulta/respuesta.
+- `lib/botStepsMemory.test.ts`: se mockea fetch de scraper y se actualizan aserciones para validar rango dinámico en respuesta del paso NSS.
 - Estado `finalizado` con manejo post-flujo vía `__POST_FLUJO__` y llamada directa a Anthropic; se eliminó reinicio automático al recibir mensajes tras completar registro.
 - Claude ahora interpreta respuestas naturales con prompt más estricto y ejemplos explícitos; `procesarYEvolucionar` unificado para usar una sola vía de interpretación y responder fuera de tema sin reglas heurísticas de longitud.
 - Estado del bot persistido en Supabase (`conversations`): lectura con `maybeSingle` sin insert por defecto, escritura con `upsert` y caché `Map` por request; corrige pérdida de estado entre instancias Vercel.

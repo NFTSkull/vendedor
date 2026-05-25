@@ -10,6 +10,8 @@
 - **Acceso rápido en listado CRM:** botón `Precalificar` junto a `Cerrar sesión` en `/crm/leads` abre modal para capturar NSS (y teléfono opcional), consultar Infonavit y mostrar resultado sin depender de leads existentes.
 - **Timeout CRM → scraper:** `POST /api/precalificar` ahora espera hasta 180s al scraper usando `AbortController` para evitar abortos prematuros cuando hay reintentos de proxy/CAPTCHA.
 - **UX modal de precalificación:** en `/crm/leads` durante la consulta se muestra el aviso «Consultando Infonavit... esto puede tardar hasta 2 minutos» para evitar cierres prematuros del modal.
+- **WhatsApp NSS en línea:** al capturar NSS válido en el bot se consulta el scraper en el mismo flujo (timeout 180s) y se responde con rango estimado dinámico antes de pedir horario.
+- **Espera visible en WhatsApp:** el webhook envía «Un momento, estoy consultando tu información en Infonavit... ⏳» antes de procesar la consulta de NSS para evitar abandono por silencio.
 
 - **Post-flujo:** cuando el estado es `finalizado`, ya no se reinicia el embudo; Claude responde mensajes posteriores (gracias, dudas, despedida) sin reiniciar la conversación.
 
