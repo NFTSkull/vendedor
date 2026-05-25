@@ -18,6 +18,7 @@
 - **Persistencia de montos de precalificación en leads:** al cerrar horario desde bot se guardan `saldo_subcuenta`, `monto_base` (`*0.9`), `monto_aprobado_min` y `monto_aprobado_max` calculados desde `saldoSubcuenta`; listado CRM ahora muestra esos tres valores por lead.
 - **Flujo WhatsApp sin paso de centro de trabajo:** se eliminó el estado `esperando_centro_trabajo`; tras responder que no tiene crédito Infonavit activo, el bot pasa directo a solicitar NSS.
 - **Mensaje de cierre del bot:** `MSG_FINAL` muestra solo el teléfono 8140100246 (se quitó 8114118767).
+- **CRM detalle lead:** si el lead tiene `saldo_subcuenta`, la sección Precalificación Infonavit muestra el desglose de montos en lugar del mensaje vacío.
 
 - **Post-flujo:** cuando el estado es `finalizado`, ya no se reinicia el embudo; Claude responde mensajes posteriores (gracias, dudas, despedida) sin reiniciar la conversación.
 

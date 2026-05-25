@@ -24,6 +24,9 @@ type Lead = {
   precalificado_at: string | null;
   nombre_infonavit: string | null;
   saldo_subcuenta: number | string | null;
+  monto_base: number | string | null;
+  monto_aprobado_min: number | string | null;
+  monto_aprobado_max: number | string | null;
   capacidad_compra: number | string | null;
   pago_mensual: number | string | null;
 };
@@ -341,9 +344,23 @@ export default function CrmLeadDetallePage() {
       ? (lead.precalificacion_resultado as ResultadoPrecalificacionGuardado)
       : null;
 
-  const saldoSubcuentaValor = normalizarNumero(
-    lead?.saldo_subcuenta ?? resultadoGuardado?.datos?.saldoSubcuenta,
-  );
+  const tieneSaldoSubcuenta =
+    lead?.saldo_subcuenta != null && normalizarNumero(lead.saldo_subcuenta) > 0;
+
+  const saldoSubcuentaValor = tieneSaldoSubcuenta
+    ? normalizarNumero(lead.saldo_subcuenta)
+    : normalizarNumero(resultadoGuardado?.datos?.saldoSubcuenta);
+  const montoBaseValor = tieneSaldoSubcuenta
+    ? normalizarNumero(lead.monto_base) || Math.floor(saldoSubcuentaValor * 0.9)
+    : 0;
+  const montoMinValor = tieneSaldoSubcuenta
+    ? normalizarNumero(lead.monto_aprobado_min) ||
+      Math.floor(saldoSubcuentaValor * 0.9 * 0.8)
+    : 0;
+  const montoMaxValor = tieneSaldoSubcuenta
+    ? normalizarNumero(lead.monto_aprobado_max) ||
+      Math.floor((saldoSubcuentaValor * 0.9) / 0.85)
+    : 0;
   const rangoAprobado =
     saldoSubcuentaValor > 0 ? calcularRangoAprobado(saldoSubcuentaValor) : null;
 
@@ -400,7 +417,7 @@ export default function CrmLeadDetallePage() {
               <section className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <h2 className="text-base font-semibold">Precalificación Infonavit</h2>
-                  {puedePrecalificar ? (
+                  {!tieneSaldoSubcuenta && puedePrecalificar ? (
                     <button
                       onClick={() => void precalificarLead()}
                       disabled={precalificando}
@@ -415,7 +432,22 @@ export default function CrmLeadDetallePage() {
                   ) : null}
                 </div>
 
-                {lead.precalificado_at ? (
+                {tieneSaldoSubcuenta ? (
+                  <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-800">
+                    <p>
+                      <span className="font-medium">Saldo subcuenta:</span>{" "}
+                      {formatearMoneda(saldoSubcuentaValor)}
+                    </p>
+                    <p>
+                      <span className="font-medium">Después de descuento (×0.9):</span>{" "}
+                      {formatearMoneda(montoBaseValor)}
+                    </p>
+                    <p>
+                      <span className="font-medium">Rango aprobado:</span>{" "}
+                      {formatearMoneda(montoMinValor)} – {formatearMoneda(montoMaxValor)}
+                    </p>
+                  </div>
+                ) : lead.precalificado_at ? (
                   <p className="mt-2 text-xs text-slate-600">
                     Última consulta: {new Date(lead.precalificado_at).toLocaleString("es-MX")}
                   </p>
