@@ -4,6 +4,9 @@
 
 ### Cambio actual
 
+- **CRM listado con acceso directo a chat:** en `app/crm/leads/page.tsx` se reemplazó la acción única `Ver` por dos botones (`Ver` y `Chat`) tanto en tabla de escritorio como en tarjetas móviles.
+- **Nueva vista full-screen de chat:** se creó `app/crm/leads/[id]/chat/page.tsx` con layout tipo WhatsApp (header verde fijo, área de mensajes `#ECE5DD`, separadores por fecha, autoscroll y barra inferior fija con input + botón circular `➤`).
+- **Lógica de chat compartida:** se extrajo la lógica de fetch/envío/polling/autoscroll a `app/crm/leads/[id]/useLeadChat.ts` y se reutiliza en detalle de lead y en la nueva pantalla completa.
 - **UI de chat tipo WhatsApp en CRM:** en `/crm/leads/[id]` se rediseñó el chat con fondo `#ECE5DD`, burbujas entrantes blancas/salientes verdes (`#DCF8C6`) con cola lateral, timestamp y origen dentro de cada burbuja (`Cliente`, `Bot`, `Asesor`), manteniendo polling de 10s y lógica existente.
 - **Composer estilo WhatsApp Web:** barra inferior visual fija con input redondeado (`Escribe un mensaje...`) y botón circular de envío con ícono de avión.
 - **Persistencia completa de chat en webhook:** `POST /api/webhook` ahora guarda mensajes entrantes siempre que exista el lead (sin depender de `leadEnModoChat`) y reintenta guardarlos al final del procesamiento para cubrir el caso donde el lead se crea dentro del mismo flujo.

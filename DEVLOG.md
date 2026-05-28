@@ -2,6 +2,10 @@
 
 ## 2026-05-28
 
+- `app/crm/leads/[id]/useLeadChat.ts`: hook compartido para chat CRM (`fetchMensajes`, envío `POST /messages`, polling cada 10s, autoscroll y etiquetado de origen `Cliente/Bot/Asesor`) para evitar duplicación entre vistas.
+- `app/crm/leads/[id]/chat/page.tsx`: nueva vista de chat a pantalla completa estilo WhatsApp con header fijo verde (`#075E54`), avatar por inicial del teléfono, datos de lead, separadores por día y composer fijo inferior.
+- `app/crm/leads/page.tsx`: en listado de leads se agregaron dos acciones separadas (`Ver` para detalle y `Chat` para pantalla completa de conversación) en desktop y móvil.
+- `app/crm/leads/[id]/page.tsx`: refactor para consumir `useLeadChat` y mantener misma lógica de chat existente en la vista de detalle.
 - `app/crm/leads/[id]/page.tsx`: rediseño visual del chat para aproximar WhatsApp Web (fondo `#ECE5DD`, burbujas blancas/verde `#DCF8C6` con cola, metadatos en esquina inferior derecha y barra inferior de envío fija).
 - `app/crm/leads/[id]/page.tsx`: se agregó etiquetado visual de origen por mensaje (`Cliente`, `Bot`, `Asesor`) sin modificar contrato de API; para salientes se conserva detección local de mensajes enviados desde la sesión del asesor.
 - `app/api/webhook/route.ts`: se quitó la dependencia de `leadEnModoChat` para persistir entrantes; ahora se guarda el mensaje entrante siempre que exista lead y se hace flush post-procesamiento para cubrir creación tardía del lead en el mismo evento.

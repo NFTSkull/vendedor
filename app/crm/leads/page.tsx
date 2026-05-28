@@ -292,12 +292,20 @@ export default function CrmLeadsPage() {
                         {new Date(lead.created_at).toLocaleString("es-MX")}
                       </td>
                       <td className="p-3">
-                        <Link
-                          href={`/crm/leads/${lead.id}`}
-                          className="rounded-lg bg-blue-600 text-white px-3 py-1.5 text-xs hover:bg-blue-700"
-                        >
-                          Ver
-                        </Link>
+                        <div className="flex items-center gap-2">
+                          <Link
+                            href={`/crm/leads/${lead.id}`}
+                            className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700"
+                          >
+                            Ver
+                          </Link>
+                          <Link
+                            href={`/crm/leads/${lead.id}/chat`}
+                            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs text-white hover:bg-emerald-700"
+                          >
+                            Chat
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -351,12 +359,20 @@ export default function CrmLeadsPage() {
                     </p>
                   </div>
 
-                  <Link
-                    href={`/crm/leads/${lead.id}`}
-                    className="mt-3 inline-block rounded-lg bg-blue-600 text-white px-3 py-1.5 text-xs hover:bg-blue-700"
-                  >
-                    Ver
-                  </Link>
+                  <div className="mt-3 flex items-center gap-2">
+                    <Link
+                      href={`/crm/leads/${lead.id}`}
+                      className="inline-block rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700"
+                    >
+                      Ver
+                    </Link>
+                    <Link
+                      href={`/crm/leads/${lead.id}/chat`}
+                      className="inline-block rounded-lg bg-emerald-600 px-3 py-1.5 text-xs text-white hover:bg-emerald-700"
+                    >
+                      Chat
+                    </Link>
+                  </div>
                 </article>
                   );
                 })()
