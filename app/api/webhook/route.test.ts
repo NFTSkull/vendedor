@@ -3,8 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   extraerTextosEntrantes: vi.fn(),
   buscarLeadPorTelefono: vi.fn(),
+  buscarLeadPorId: vi.fn(),
   guardarMensaje: vi.fn(),
   getConversation: vi.fn(),
+  ensureLeadProvisional: vi.fn(),
   procesarYEvolucionar: vi.fn(),
   enviarMensajeTextoWa: vi.fn(),
 }));
@@ -15,11 +17,16 @@ vi.mock("@/lib/parseWhatsAppWebhook", () => ({
 
 vi.mock("@/lib/messagesDb", () => ({
   buscarLeadPorTelefono: mocks.buscarLeadPorTelefono,
+  buscarLeadPorId: mocks.buscarLeadPorId,
   guardarMensaje: mocks.guardarMensaje,
 }));
 
 vi.mock("@/lib/conversationMemory", () => ({
   getConversation: mocks.getConversation,
+}));
+
+vi.mock("@/lib/leadProvisional", () => ({
+  ensureLeadProvisional: mocks.ensureLeadProvisional,
 }));
 
 vi.mock("@/lib/botSteps", () => ({
@@ -47,7 +54,18 @@ describe("POST /api/webhook", () => {
     mocks.extraerTextosEntrantes.mockReturnValue([
       { from: "5215550000000", body: "Hola", wamid: "wamid.1" },
     ]);
-    mocks.getConversation.mockResolvedValue({ state: "inicio" });
+    mocks.getConversation.mockResolvedValue({
+      state: "inicio",
+      name: null,
+      nss: null,
+      lead_id: "lead-1",
+    });
+    mocks.ensureLeadProvisional.mockResolvedValue("lead-1");
+    mocks.buscarLeadPorId.mockResolvedValue({
+      id: "lead-1",
+      whatsapp_phone: "5215550000000",
+      estado: "nuevo",
+    });
     mocks.procesarYEvolucionar.mockResolvedValue("Respuesta del bot");
     mocks.enviarMensajeTextoWa.mockResolvedValue({ ok: true, status: 200, data: {} });
     mocks.guardarMensaje.mockResolvedValue(true);
@@ -57,13 +75,7 @@ describe("POST /api/webhook", () => {
     vi.clearAllMocks();
   });
 
-  it("guarda mensaje entrante aunque lead esté en estado nuevo", async () => {
-    mocks.buscarLeadPorTelefono.mockResolvedValue({
-      id: "lead-1",
-      whatsapp_phone: "5215550000000",
-      estado: "nuevo",
-    });
-
+  it("guarda mensaje entrante usando lead_id de la conversación", async () => {
     const req = new Request("http://localhost/api/webhook", {
       method: "POST",
       body: JSON.stringify({}),
@@ -72,6 +84,7 @@ describe("POST /api/webhook", () => {
     const res = await POST(req as never);
 
     expect(res.status).toBe(200);
+    expect(mocks.ensureLeadProvisional).toHaveBeenCalledWith("5215550000000");
     expect(mocks.guardarMensaje).toHaveBeenCalledWith({
       leadId: "lead-1",
       direccion: "entrante",
@@ -88,13 +101,25 @@ describe("POST /api/webhook", () => {
     mocks.extraerTextosEntrantes.mockReturnValue([
       { from: "5215550000000", body: "Hola", wamid: "wamid.2" },
     ]);
-    mocks.buscarLeadPorTelefono
-      .mockResolvedValueOnce(null)
+    mocks.getConversation
       .mockResolvedValueOnce({
-        id: "lead-recien-creado",
-        whatsapp_phone: "5215550000000",
-        estado: "nuevo",
+        state: "inicio",
+        name: null,
+        nss: null,
+        lead_id: null,
+      })
+      .mockResolvedValue({
+        state: "esperando_labor_vigente",
+        name: null,
+        nss: null,
+        lead_id: "lead-recien-creado",
       });
+    mocks.ensureLeadProvisional.mockResolvedValue("lead-recien-creado");
+    mocks.buscarLeadPorId.mockResolvedValue({
+      id: "lead-recien-creado",
+      whatsapp_phone: "5215550000000",
+      estado: "nuevo",
+    });
 
     const req = new Request("http://localhost/api/webhook", {
       method: "POST",
@@ -124,8 +149,14 @@ describe("POST /api/webhook", () => {
         wamid: "wamid.3",
       },
     ]);
-    mocks.getConversation.mockResolvedValue({ state: "esperando_datos" });
-    mocks.buscarLeadPorTelefono.mockResolvedValue({
+    mocks.getConversation.mockResolvedValue({
+      state: "esperando_datos",
+      name: null,
+      nss: null,
+      lead_id: "lead-3",
+    });
+    mocks.ensureLeadProvisional.mockResolvedValue("lead-3");
+    mocks.buscarLeadPorId.mockResolvedValue({
       id: "lead-3",
       whatsapp_phone: "5215550000000",
       estado: "nuevo",

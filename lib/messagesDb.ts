@@ -18,6 +18,22 @@ export type MessageRow = {
 
 const ESTADOS_CHAT = ["contactado", "no_interesado"] as const;
 
+export async function buscarLeadPorId(leadId: string): Promise<LeadRow | null> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("leads")
+    .select("id, whatsapp_phone, estado")
+    .eq("id", leadId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[messages] Error buscando lead por id:", error);
+    return null;
+  }
+
+  return data;
+}
+
 export async function buscarLeadPorTelefono(
   phone: string,
 ): Promise<LeadRow | null> {

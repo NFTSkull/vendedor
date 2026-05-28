@@ -3,9 +3,12 @@ import {
   getConversation,
   setConversation,
 } from "@/lib/conversationMemory";
+import {
+  actualizarLeadPorConversacion,
+  ensureLeadProvisional,
+} from "@/lib/leadProvisional";
 import { extraerNssOnceDigitos } from "@/lib/nss";
 import { esAfirmativo, esComandoReinicio, esNegativo } from "@/lib/normalizeText";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type BotState =
   | "inicio"
@@ -194,28 +197,23 @@ async function guardarLead(
   horario: string,
   datosPrecalificacion?: DatosPrecalificacionAprobada,
 ) {
-  try {
-    const supabase = getSupabaseAdmin();
-    const leadPayload: Record<string, unknown> = {
-      whatsapp_phone: phone,
-      nss,
-      horario,
-      estado: "nuevo",
-    };
-    if (datosPrecalificacion) {
-      leadPayload.saldo_subcuenta = datosPrecalificacion.saldoSubcuentaRaw;
-      leadPayload.monto_base = datosPrecalificacion.montoBase;
-      leadPayload.monto_aprobado_min = datosPrecalificacion.montoAprobadoMin;
-      leadPayload.monto_aprobado_max = datosPrecalificacion.montoAprobadoMax;
-    }
-    const { error } = await supabase
-      .from("leads")
-      .insert(leadPayload);
+  const leadPayload: Record<string, unknown> = {
+    nss,
+    horario,
+    estado: "nuevo",
+  };
+  if (datosPrecalificacion) {
+    leadPayload.saldo_subcuenta = datosPrecalificacion.saldoSubcuentaRaw;
+    leadPayload.monto_base = datosPrecalificacion.montoBase;
+    leadPayload.monto_aprobado_min = datosPrecalificacion.montoAprobadoMin;
+    leadPayload.monto_aprobado_max = datosPrecalificacion.montoAprobadoMax;
+  }
 
-    if (error) console.error("[Supabase] Error guardando lead:", error);
-    else console.log("[Supabase] Lead guardado:", { phone, nss, horario });
-  } catch (err) {
-    console.error("[Supabase] Error:", err);
+  const ok = await actualizarLeadPorConversacion(phone, leadPayload);
+  if (!ok) {
+    console.error("[Supabase] Error actualizando lead:", { phone, nss, horario });
+  } else {
+    console.log("[Supabase] Lead actualizado:", { phone, nss, horario });
   }
 }
 
@@ -226,7 +224,9 @@ export async function reiniciarFlujoCore(phone: string): Promise<ResultadoPaso> 
     state: "esperando_labor_vigente",
     name: null,
     nss: null,
+    lead_id: null,
   });
+  await ensureLeadProvisional(phone);
   return exacto(MSG_BIENVENIDA);
 }
 
@@ -246,6 +246,7 @@ export async function ejecutarPasoCore(args: {
       return { texto: "__POST_FLUJO__", exacto: true };
     }
     case "inicio":
+      await ensureLeadProvisional(phone);
       await setConversation(phone, {
         state: "esperando_labor_vigente",
         name: null,
@@ -337,6 +338,7 @@ export async function ejecutarPasoCore(args: {
             montoAprobadoMin: min,
             montoAprobadoMax: max,
           });
+          await actualizarLeadPorConversacion(phone, { nss });
           await setConversation(phone, {
             state: "esperando_horario",
             name: null,

@@ -13,6 +13,7 @@ export type ConversationValue = {
   state: BotRuntimeState;
   name: string | null;
   nss: string | null;
+  lead_id: string | null;
 };
 
 // Map local como caché para la misma request
@@ -25,7 +26,7 @@ export async function getConversation(
     const supabase = getSupabaseAdmin();
     const { data } = await supabase
       .from("conversations")
-      .select("state, nss")
+      .select("state, nss, lead_id")
       .eq("whatsapp_phone", phone)
       .maybeSingle();
 
@@ -34,6 +35,7 @@ export async function getConversation(
         state: data.state as BotRuntimeState,
         name: null,
         nss: data.nss ?? null,
+        lead_id: data.lead_id ?? null,
       };
       conversationMemory.set(phone, val);
       return val;
@@ -44,20 +46,34 @@ export async function getConversation(
     console.error("[conversationMemory] Error leyendo Supabase:", err);
   }
 
-  return { state: "inicio", name: null, nss: null };
+  return { state: "inicio", name: null, nss: null, lead_id: null };
 }
 
 export async function setConversation(
   phone: string,
-  value: ConversationValue,
+  patch: Partial<ConversationValue> & Pick<ConversationValue, "state">,
 ): Promise<void> {
-  conversationMemory.set(phone, value);
+  const cached = conversationMemory.get(phone);
+  const base: ConversationValue = cached ?? {
+    state: "inicio",
+    name: null,
+    nss: null,
+    lead_id: null,
+  };
+  const merged: ConversationValue = {
+    state: patch.state,
+    name: patch.name ?? base.name,
+    nss: patch.nss !== undefined ? patch.nss : base.nss,
+    lead_id: patch.lead_id !== undefined ? patch.lead_id : base.lead_id,
+  };
+  conversationMemory.set(phone, merged);
   try {
     const supabase = getSupabaseAdmin();
     await supabase.from("conversations").upsert({
       whatsapp_phone: phone,
-      state: value.state,
-      nss: value.nss,
+      state: merged.state,
+      nss: merged.nss,
+      lead_id: merged.lead_id,
       updated_at: new Date().toISOString(),
     });
   } catch (err) {

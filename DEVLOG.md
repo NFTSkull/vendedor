@@ -2,6 +2,11 @@
 
 ## 2026-05-28
 
+- `lib/leadProvisional.ts`: creación de lead provisional al primer contacto (`whatsapp_phone`, `estado: nuevo`, `nss/horario: null`) y actualización incremental del mismo registro durante el flujo.
+- `lib/conversationMemory.ts`: se agregó `lead_id` a `ConversationValue` y al upsert de `conversations` para enlazar mensajes con el lead desde el inicio.
+- `lib/botStepsCore.ts`: `inicio` y reinicio llaman `ensureLeadProvisional`; al validar NSS se actualiza el lead; al cerrar horario se hace `update` (ya no `insert` final).
+- `app/api/webhook/route.ts`: resolución de lead priorizando `conversations.lead_id` tras `ensureLeadProvisional`, antes de guardar entrantes/salientes.
+- Requisito de esquema Supabase: columna `lead_id` (uuid, nullable) en tabla `conversations`.
 - `app/crm/leads/[id]/useLeadChat.ts`: hook compartido para chat CRM (`fetchMensajes`, envío `POST /messages`, polling cada 10s, autoscroll y etiquetado de origen `Cliente/Bot/Asesor`) para evitar duplicación entre vistas.
 - `app/crm/leads/[id]/chat/page.tsx`: nueva vista de chat a pantalla completa estilo WhatsApp con header fijo verde (`#075E54`), avatar por inicial del teléfono, datos de lead, separadores por día y composer fijo inferior.
 - `app/crm/leads/page.tsx`: en listado de leads se agregaron dos acciones separadas (`Ver` para detalle y `Chat` para pantalla completa de conversación) en desktop y móvil.

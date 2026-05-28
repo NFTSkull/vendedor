@@ -5,19 +5,84 @@ import { conversationMemory } from "@/lib/conversationMemory";
 
 const conversationsStore = new Map<
   string,
-  { state: string; nss: string | null }
+  { state: string; nss: string | null; lead_id: string | null }
 >();
+const leadsById = new Map<string, Record<string, unknown>>();
+const leadsByPhone = new Map<string, string>();
 const leadsInsertRows: Array<Record<string, unknown>> = [];
+const leadsUpdateRows: Array<{ id: string; patch: Record<string, unknown> }> = [];
+let leadCounter = 0;
+
+function makeLeadsSelect() {
+  return {
+    eq: (col: string, val: string) => ({
+      order: () => ({
+        limit: () => ({
+          maybeSingle: async () => {
+            if (col !== "whatsapp_phone") {
+              return { data: null, error: null };
+            }
+            const id = leadsByPhone.get(val);
+            if (!id) return { data: null, error: null };
+            const row = leadsById.get(id);
+            return {
+              data: row
+                ? {
+                    id,
+                    whatsapp_phone: val,
+                    estado: (row.estado as string) ?? "nuevo",
+                  }
+                : null,
+              error: null,
+            };
+          },
+        }),
+      }),
+      maybeSingle: async () => {
+        if (col !== "id") return { data: null, error: null };
+        const row = leadsById.get(val);
+        if (!row) return { data: null, error: null };
+        return {
+          data: {
+            id: val,
+            whatsapp_phone: row.whatsapp_phone,
+            estado: (row.estado as string) ?? "nuevo",
+          },
+          error: null,
+        };
+      },
+    }),
+  };
+}
 
 vi.mock("@/lib/supabaseAdmin", () => ({
   getSupabaseAdmin: () => ({
     from: (table: string) => {
       if (table === "leads") {
         return {
-          insert: vi.fn().mockImplementation(async (row: Record<string, unknown>) => {
-            leadsInsertRows.push(row);
-            return { error: null };
+          insert: (row: Record<string, unknown>) => ({
+            select: () => ({
+              single: async () => {
+                const id = `lead-${++leadCounter}`;
+                const full = { ...row, id };
+                leadsInsertRows.push(row);
+                leadsById.set(id, full);
+                if (typeof row.whatsapp_phone === "string") {
+                  leadsByPhone.set(row.whatsapp_phone, id);
+                }
+                return { data: { id }, error: null };
+              },
+            }),
           }),
+          update: (patch: Record<string, unknown>) => ({
+            eq: async (_col: string, id: string) => {
+              leadsUpdateRows.push({ id, patch });
+              const current = leadsById.get(id);
+              if (current) leadsById.set(id, { ...current, ...patch });
+              return { error: null };
+            },
+          }),
+          select: () => makeLeadsSelect(),
         };
       }
       if (table === "conversations") {
@@ -34,10 +99,14 @@ vi.mock("@/lib/supabaseAdmin", () => ({
             whatsapp_phone: string;
             state: string;
             nss: string | null;
+            lead_id?: string | null;
           }) => {
+            const prev = conversationsStore.get(row.whatsapp_phone);
             conversationsStore.set(row.whatsapp_phone, {
               state: row.state,
               nss: row.nss,
+              lead_id:
+                row.lead_id !== undefined ? row.lead_id : (prev?.lead_id ?? null),
             });
             return { error: null };
           },
@@ -94,7 +163,44 @@ describe("botSteps memoria Map", () => {
     vi.unstubAllGlobals();
     conversationMemory.clear();
     conversationsStore.clear();
+    leadsById.clear();
+    leadsByPhone.clear();
     leadsInsertRows.length = 0;
+    leadsUpdateRows.length = 0;
+    leadCounter = 0;
+  });
+
+  it("crea lead provisional en el primer mensaje y lo actualiza al cerrar", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const p = "5211111111111";
+
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+
+    expect(leadsInsertRows[0]).toMatchObject({
+      whatsapp_phone: p,
+      estado: "nuevo",
+      nss: null,
+      horario: null,
+    });
+    expect(conversationMemory.get(p)?.lead_id).toBe("lead-1");
+
+    for (const paso of FLUJO_SI.slice(1)) {
+      await procesarYEvolucionar({ phone: p, textoUsuario: paso });
+    }
+
+    expect(leadsUpdateRows.some((u) => u.patch.nss === "12345678901")).toBe(true);
+    expect(
+      leadsUpdateRows.some(
+        (u) => u.patch.horario === "Martes 10am" && u.patch.nss === "12345678901",
+      ),
+    ).toBe(true);
+    expect(logSpy).toHaveBeenCalledWith("[Supabase] Lead actualizado:", {
+      phone: p,
+      nss: "12345678901",
+      horario: "Martes 10am",
+    });
+
+    logSpy.mockRestore();
   });
 
   it("flujo completo hasta cierre con asesor y logea lead", async () => {
@@ -116,13 +222,9 @@ describe("botSteps memoria Map", () => {
       name: null,
       nss: "12345678901",
     });
-    expect(logSpy).toHaveBeenCalledWith("[Supabase] Lead guardado:", {
-      phone: p,
-      nss: "12345678901",
-      horario: "Martes 10am",
-    });
-    expect(leadsInsertRows[0]).toMatchObject({
-      whatsapp_phone: p,
+
+    const ultimaActualizacion = leadsUpdateRows[leadsUpdateRows.length - 1];
+    expect(ultimaActualizacion.patch).toMatchObject({
       nss: "12345678901",
       horario: "Martes 10am",
       estado: "nuevo",
@@ -180,6 +282,7 @@ describe("botSteps memoria Map", () => {
     expect(conversationMemory.get(p)?.state).toBe("esperando_labor_vigente");
     expect(conversationMemory.get(p)?.name).toBeNull();
     expect(conversationMemory.get(p)?.nss).toBeNull();
+    expect(conversationMemory.get(p)?.lead_id).toBe("lead-1");
   });
 
   it.each(["reiniciar", "Reiniciar", "empezar de nuevo", "iniciar de nuevo"])(

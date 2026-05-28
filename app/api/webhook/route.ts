@@ -2,7 +2,9 @@ import type { NextRequest } from "next/server";
 
 import { procesarYEvolucionar } from "@/lib/botSteps";
 import { getConversation } from "@/lib/conversationMemory";
+import { ensureLeadProvisional } from "@/lib/leadProvisional";
 import {
+  buscarLeadPorId,
   buscarLeadPorTelefono,
   guardarMensaje,
   type LeadRow,
@@ -62,7 +64,23 @@ export async function POST(req: NextRequest): Promise<Response> {
 
     console.log("[WEBHOOK_DEBUG] from extraído (parseWhatsAppWebhook):", m.from);
 
+    await ensureLeadProvisional(m.from);
+    const conversacionLead = await getConversation(m.from);
+
     let leadChat: LeadRow | null = null;
+    if (conversacionLead.lead_id) {
+      leadChat =
+        (await buscarLeadPorId(conversacionLead.lead_id)) ??
+        ({
+          id: conversacionLead.lead_id,
+          whatsapp_phone: m.from,
+          estado: "nuevo",
+        } satisfies LeadRow);
+    }
+    if (!leadChat) {
+      leadChat = await buscarLeadPorTelefono(m.from);
+    }
+
     let mensajeEntranteGuardado = false;
     const mensajesSalientesExitosos: string[] = [];
 
@@ -71,7 +89,18 @@ export async function POST(req: NextRequest): Promise<Response> {
       contenido: string,
     ): Promise<boolean> {
       if (!leadChat) {
-        leadChat = await buscarLeadPorTelefono(m.from);
+        const conv = await getConversation(m.from);
+        if (conv.lead_id) {
+          leadChat =
+            (await buscarLeadPorId(conv.lead_id)) ??
+            ({
+              id: conv.lead_id,
+              whatsapp_phone: m.from,
+              estado: "nuevo",
+            } satisfies LeadRow);
+        } else {
+          leadChat = await buscarLeadPorTelefono(m.from);
+        }
       }
       if (!leadChat) return false;
       return guardarMensaje({
@@ -102,7 +131,6 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
 
     try {
-      leadChat = await buscarLeadPorTelefono(m.from);
       if (leadChat) {
         mensajeEntranteGuardado = await guardarMensajeSiHayLead("entrante", m.body);
       }
