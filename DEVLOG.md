@@ -1,5 +1,17 @@
 # DEVLOG
 
+## 2026-05-28
+
+- `app/crm/leads/[id]/page.tsx`: rediseño visual del chat para aproximar WhatsApp Web (fondo `#ECE5DD`, burbujas blancas/verde `#DCF8C6` con cola, metadatos en esquina inferior derecha y barra inferior de envío fija).
+- `app/crm/leads/[id]/page.tsx`: se agregó etiquetado visual de origen por mensaje (`Cliente`, `Bot`, `Asesor`) sin modificar contrato de API; para salientes se conserva detección local de mensajes enviados desde la sesión del asesor.
+- `app/api/webhook/route.ts`: se quitó la dependencia de `leadEnModoChat` para persistir entrantes; ahora se guarda el mensaje entrante siempre que exista lead y se hace flush post-procesamiento para cubrir creación tardía del lead en el mismo evento.
+- `app/api/webhook/route.ts`: se añadió cola de mensajes salientes exitosos del webhook (mensaje de espera + reply del bot) para persistirlos en `messages` con `direccion: "saliente"` sin alterar el orden de envío por WhatsApp.
+- `app/crm/leads/[id]/page.tsx`: `chatHabilitado` incluye estado `nuevo` además de `contactado` y `no_interesado`.
+- `app/api/crm/leads/[id]/messages/route.ts`: se agregó guardia de estado permitido para envío de asesor (`nuevo`, `contactado`, `no_interesado`) con respuesta `400` para estados no contemplados.
+- Tests nuevos:
+  - `app/api/webhook/route.test.ts` valida guardado entrante en `nuevo`, persistencia post-creación de lead y guardado de salientes automáticos.
+  - `app/api/crm/leads/[id]/messages/route.test.ts` valida envío permitido en `nuevo` y rechazo de estados fuera de contrato.
+
 ## 2026-05-20
 
 - `app/api/precalificar/route.ts` + `lib/precalificarTrigger.ts`: precalificación vía scraper tras captura de NSS; webhook dispara el job en segundo plano. Leads por `whatsapp_phone` (insert si aún no existe fila).

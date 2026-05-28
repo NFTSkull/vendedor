@@ -98,6 +98,7 @@ export default function CrmLeadDetallePage() {
   const [chatError, setChatError] = useState("");
   const [nuevoMensaje, setNuevoMensaje] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const [mensajesAsesorLocales, setMensajesAsesorLocales] = useState<string[]>([]);
 
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -216,6 +217,7 @@ export default function CrmLeadDetallePage() {
       }
 
       setNuevoMensaje("");
+      setMensajesAsesorLocales((prev) => [...prev, texto]);
       await fetchMensajes();
     } catch {
       setChatError("Error de red al enviar mensaje.");
@@ -329,7 +331,14 @@ export default function CrmLeadDetallePage() {
   }, [mensajes]);
 
   const chatHabilitado =
-    lead?.estado === "contactado" || lead?.estado === "no_interesado";
+    lead?.estado === "nuevo" ||
+    lead?.estado === "contactado" ||
+    lead?.estado === "no_interesado";
+
+  function obtenerOrigenMensaje(msg: ChatMessage): "Cliente" | "Bot" | "Asesor" {
+    if (msg.direccion === "entrante") return "Cliente";
+    return mensajesAsesorLocales.includes(msg.contenido) ? "Asesor" : "Bot";
+  }
 
   const puedePrecalificar =
     !!lead?.nss &&
@@ -553,21 +562,22 @@ export default function CrmLeadDetallePage() {
               )}
             </section>
 
-            <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 md:p-5">
-              <h2 className="text-lg font-semibold mb-3">Chat con cliente</h2>
+            <section className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              <div className="border-b border-slate-200 bg-[#F0F2F5] px-4 py-3 md:px-5">
+                <h2 className="text-lg font-semibold">Chat con cliente</h2>
+              </div>
 
               {!chatHabilitado ? (
-                <p className="text-sm text-slate-600 mb-3">
-                  Marca el lead como contactado o no interesado para habilitar el
-                  chat.
+                <p className="px-4 pt-3 text-sm text-slate-600 md:px-5">
+                  El chat no está disponible para el estado actual del lead.
                 </p>
               ) : null}
 
-              <div className="h-80 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+              <div className="h-[28rem] overflow-y-auto bg-[#ECE5DD] px-3 py-4 md:px-4">
                 {chatLoading && mensajes.length === 0 ? (
                   <div className="space-y-2">
-                    <div className="h-10 w-2/3 rounded-lg bg-slate-200 animate-pulse" />
-                    <div className="h-10 w-1/2 rounded-lg bg-slate-200 animate-pulse ml-auto" />
+                    <div className="h-10 w-2/3 rounded-lg bg-slate-200/90 animate-pulse" />
+                    <div className="ml-auto h-10 w-1/2 rounded-lg bg-slate-200/90 animate-pulse" />
                   </div>
                 ) : mensajes.length === 0 ? (
                   <p className="text-sm text-slate-500 text-center py-8">
@@ -576,31 +586,39 @@ export default function CrmLeadDetallePage() {
                 ) : (
                   mensajes.map((msg) => {
                     const esSaliente = msg.direccion === "saliente";
+                    const origen = obtenerOrigenMensaje(msg);
                     return (
                       <div
                         key={msg.id}
-                        className={`flex ${esSaliente ? "justify-end" : "justify-start"}`}
+                        className={`mb-2 flex ${esSaliente ? "justify-end" : "justify-start"}`}
                       >
                         <div
-                          className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
+                          className={`relative max-w-[85%] rounded-lg px-3 py-2.5 text-sm shadow-sm ${
                             esSaliente
-                              ? "bg-blue-600 text-white rounded-br-sm"
-                              : "bg-white text-slate-800 border border-slate-200 rounded-bl-sm"
+                              ? "bg-[#DCF8C6] text-slate-900 rounded-br-[4px]"
+                              : "bg-white text-slate-900 rounded-bl-[4px]"
                           }`}
                         >
-                          <p>{msg.contenido}</p>
-                          <p
-                            className={`mt-1 text-[10px] ${
-                              esSaliente ? "text-blue-100" : "text-slate-500"
+                          <span
+                            aria-hidden
+                            className={`absolute top-0 h-0 w-0 border-y-[8px] border-y-transparent ${
+                              esSaliente
+                                ? "right-0 translate-x-[8px] border-l-[10px] border-l-[#DCF8C6]"
+                                : "left-0 -translate-x-[8px] border-r-[10px] border-r-white"
                             }`}
-                          >
-                            {new Date(msg.created_at).toLocaleString("es-MX", {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                              day: "2-digit",
-                              month: "2-digit",
-                            })}
-                          </p>
+                          />
+                          <p className="whitespace-pre-wrap break-words pr-10">{msg.contenido}</p>
+                          <div className="mt-1 flex flex-col items-end leading-tight text-[10px] text-slate-500">
+                            <span>
+                              {new Date(msg.created_at).toLocaleString("es-MX", {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                day: "2-digit",
+                                month: "2-digit",
+                              })}
+                            </span>
+                            <span className="text-[9px] uppercase tracking-wide">{origen}</span>
+                          </div>
                         </div>
                       </div>
                     );
@@ -610,28 +628,28 @@ export default function CrmLeadDetallePage() {
               </div>
 
               {chatError ? (
-                <p className="mt-2 text-sm text-red-600">{chatError}</p>
+                <p className="px-4 pt-2 text-sm text-red-600 md:px-5">{chatError}</p>
               ) : null}
 
-              <form onSubmit={enviarMensaje} className="mt-3 flex gap-2">
+              <form
+                onSubmit={enviarMensaje}
+                className="sticky bottom-0 flex items-center gap-2 border-t border-slate-200 bg-[#F0F2F5] px-3 py-2 md:px-4"
+              >
                 <input
                   type="text"
                   value={nuevoMensaje}
                   onChange={(e) => setNuevoMensaje(e.target.value)}
                   disabled={!chatHabilitado || enviando}
-                  placeholder={
-                    chatHabilitado
-                      ? "Escribe un mensaje..."
-                      : "Chat no disponible"
-                  }
-                  className="flex-1 rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100"
+                  placeholder="Escribe un mensaje..."
+                  className="flex-1 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-slate-100"
                 />
                 <button
                   type="submit"
                   disabled={!chatHabilitado || enviando || !nuevoMensaje.trim()}
-                  className="rounded-xl bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
+                  aria-label="Enviar mensaje"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-600 text-base text-white hover:bg-emerald-700 disabled:opacity-60"
                 >
-                  {enviando ? "Enviando..." : "Enviar"}
+                  {enviando ? "…" : "➤"}
                 </button>
               </form>
             </section>

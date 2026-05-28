@@ -8,6 +8,7 @@ import { enviarMensajeTextoWa } from "@/lib/whatsappCloud";
 const PostSchema = z.object({
   mensaje: z.string().trim().min(1).max(4000),
 });
+const ESTADOS_PERMITIDOS_CHAT = new Set(["nuevo", "contactado", "no_interesado"]);
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -70,6 +71,12 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
 
     if (!lead) {
       return Response.json({ error: "Lead no encontrado" }, { status: 404 });
+    }
+    if (!ESTADOS_PERMITIDOS_CHAT.has(lead.estado)) {
+      return Response.json(
+        { error: "El estado del lead no permite enviar mensajes" },
+        { status: 400 },
+      );
     }
 
     const envio = await enviarMensajeTextoWa({

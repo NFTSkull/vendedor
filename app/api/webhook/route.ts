@@ -5,7 +5,7 @@ import { getConversation } from "@/lib/conversationMemory";
 import {
   buscarLeadPorTelefono,
   guardarMensaje,
-  leadEnModoChat,
+  type LeadRow,
 } from "@/lib/messagesDb";
 import { getMetaWebhookVerificationResponse } from "@/lib/metaWebhookVerification";
 import { extraerNssOnceDigitos } from "@/lib/nss";
@@ -62,15 +62,49 @@ export async function POST(req: NextRequest): Promise<Response> {
 
     console.log("[WEBHOOK_DEBUG] from extraído (parseWhatsAppWebhook):", m.from);
 
-    let leadChat = null;
+    let leadChat: LeadRow | null = null;
+    let mensajeEntranteGuardado = false;
+    const mensajesSalientesExitosos: string[] = [];
+
+    async function guardarMensajeSiHayLead(
+      direccion: "entrante" | "saliente",
+      contenido: string,
+    ): Promise<boolean> {
+      if (!leadChat) {
+        leadChat = await buscarLeadPorTelefono(m.from);
+      }
+      if (!leadChat) return false;
+      return guardarMensaje({
+        leadId: leadChat.id,
+        direccion,
+        contenido,
+      });
+    }
+
+    async function flushHistorialPendiente(): Promise<void> {
+      if (!mensajeEntranteGuardado) {
+        try {
+          mensajeEntranteGuardado = await guardarMensajeSiHayLead("entrante", m.body);
+        } catch (err) {
+          console.error("[webhook] Error guardando mensaje entrante (post-creación):", err);
+        }
+      }
+
+      while (mensajesSalientesExitosos.length > 0) {
+        const contenido = mensajesSalientesExitosos.shift();
+        if (!contenido) continue;
+        try {
+          await guardarMensajeSiHayLead("saliente", contenido);
+        } catch (err) {
+          console.error("[webhook] Error guardando mensaje saliente:", err);
+        }
+      }
+    }
+
     try {
       leadChat = await buscarLeadPorTelefono(m.from);
-      if (leadChat && leadEnModoChat(leadChat.estado)) {
-        await guardarMensaje({
-          leadId: leadChat.id,
-          direccion: "entrante",
-          contenido: m.body,
-        });
+      if (leadChat) {
+        mensajeEntranteGuardado = await guardarMensajeSiHayLead("entrante", m.body);
       }
     } catch (err) {
       console.error("[webhook] Error guardando mensaje entrante:", err);
@@ -94,6 +128,10 @@ export async function POST(req: NextRequest): Promise<Response> {
       });
       if (!espera.ok) {
         console.error("[WhatsApp wait]", espera.status, espera.data);
+      } else {
+        mensajesSalientesExitosos.push(
+          "Un momento, estoy consultando tu información en Infonavit... ⏳",
+        );
       }
     }
 
@@ -102,7 +140,10 @@ export async function POST(req: NextRequest): Promise<Response> {
       textoUsuario: m.body,
     });
 
-    if (!reply) continue;
+    if (!reply) {
+      await flushHistorialPendiente();
+      continue;
+    }
 
     console.log("[WEBHOOK_DEBUG] to usado en Graph (enviarMensajeTextoWa):", m.from);
 
@@ -115,7 +156,11 @@ export async function POST(req: NextRequest): Promise<Response> {
     });
     if (!envio.ok) {
       console.error("[WhatsApp send]", envio.status, envio.data);
+    } else {
+      mensajesSalientesExitosos.push(reply);
     }
+
+    await flushHistorialPendiente();
   }
 
   return Response.json({}, { status: 200 });

@@ -1,5 +1,16 @@
 # Changelog
 
+## [Sin versión semver] — 2026-05-28
+
+### Cambio actual
+
+- **UI de chat tipo WhatsApp en CRM:** en `/crm/leads/[id]` se rediseñó el chat con fondo `#ECE5DD`, burbujas entrantes blancas/salientes verdes (`#DCF8C6`) con cola lateral, timestamp y origen dentro de cada burbuja (`Cliente`, `Bot`, `Asesor`), manteniendo polling de 10s y lógica existente.
+- **Composer estilo WhatsApp Web:** barra inferior visual fija con input redondeado (`Escribe un mensaje...`) y botón circular de envío con ícono de avión.
+- **Persistencia completa de chat en webhook:** `POST /api/webhook` ahora guarda mensajes entrantes siempre que exista el lead (sin depender de `leadEnModoChat`) y reintenta guardarlos al final del procesamiento para cubrir el caso donde el lead se crea dentro del mismo flujo.
+- **Historial de salientes automáticos del bot:** los mensajes enviados automáticamente por WhatsApp desde webhook (incluido el mensaje de espera y la respuesta principal) ahora también se persisten en `messages` con `direccion: "saliente"` tras envío exitoso.
+- **Chat CRM habilitado en estado `nuevo`:** en `/crm/leads/[id]` el asesor ya puede enviar desde `nuevo`, `contactado` y `no_interesado`; `POST /api/crm/leads/[id]/messages` valida explícitamente esos tres estados permitidos.
+- **Cobertura de pruebas:** se agregaron tests para webhook (`app/api/webhook/route.test.ts`) y para el endpoint CRM de mensajes (`app/api/crm/leads/[id]/messages/route.test.ts`) cubriendo persistencia entrante/saliente y permiso en estado `nuevo`.
+
 ## [Sin versión semver] — 2026-05-20
 
 ### Cambio actual
