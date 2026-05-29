@@ -179,8 +179,8 @@ describe("botSteps memoria Map", () => {
     expect(leadsInsertRows[0]).toMatchObject({
       whatsapp_phone: p,
       estado: "nuevo",
-      nss: null,
-      horario: null,
+      nss: "",
+      horario: "",
     });
     expect(conversationMemory.get(p)?.lead_id).toBe("lead-1");
 

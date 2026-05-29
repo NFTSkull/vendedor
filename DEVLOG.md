@@ -2,7 +2,9 @@
 
 ## 2026-05-28
 
-- `lib/leadProvisional.ts`: creación de lead provisional al primer contacto (`whatsapp_phone`, `estado: nuevo`, `nss/horario: null`) y actualización incremental del mismo registro durante el flujo.
+- `lib/leadProvisional.ts`: corrección de compatibilidad con esquema `leads` (`nss`/`horario` NOT NULL) usando strings vacíos en el insert provisional.
+- `lib/botStepsCore.ts`: fallback de seguridad al cerrar horario; si la conversación llega sin `lead_id`, se hace `insert` del lead y se enlaza en `conversations` antes de finalizar.
+- `lib/leadProvisional.ts`: creación de lead provisional al primer contacto (`whatsapp_phone`, `estado: nuevo`) y actualización incremental del mismo registro durante el flujo.
 - `lib/conversationMemory.ts`: se agregó `lead_id` a `ConversationValue` y al upsert de `conversations` para enlazar mensajes con el lead desde el inicio.
 - `lib/botStepsCore.ts`: `inicio` y reinicio llaman `ensureLeadProvisional`; al validar NSS se actualiza el lead; al cerrar horario se hace `update` (ya no `insert` final).
 - `app/api/webhook/route.ts`: resolución de lead priorizando `conversations.lead_id` tras `ensureLeadProvisional`, antes de guardar entrantes/salientes.

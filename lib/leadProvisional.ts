@@ -19,8 +19,8 @@ export async function ensureLeadProvisional(phone: string): Promise<string | nul
       .insert({
         whatsapp_phone: phone,
         estado: "nuevo",
-        nss: null,
-        horario: null,
+        nss: "",
+        horario: "",
       })
       .select("id")
       .single();

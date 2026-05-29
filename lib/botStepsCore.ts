@@ -9,6 +9,7 @@ import {
 } from "@/lib/leadProvisional";
 import { extraerNssOnceDigitos } from "@/lib/nss";
 import { esAfirmativo, esComandoReinicio, esNegativo } from "@/lib/normalizeText";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type BotState =
   | "inicio"
@@ -207,6 +208,41 @@ async function guardarLead(
     leadPayload.monto_base = datosPrecalificacion.montoBase;
     leadPayload.monto_aprobado_min = datosPrecalificacion.montoAprobadoMin;
     leadPayload.monto_aprobado_max = datosPrecalificacion.montoAprobadoMax;
+  }
+
+  const conv = await getConversation(phone);
+  if (!conv.lead_id) {
+    try {
+      const supabase = getSupabaseAdmin();
+      const { data, error } = await supabase
+        .from("leads")
+        .insert({
+          whatsapp_phone: phone,
+          ...leadPayload,
+        })
+        .select("id")
+        .single();
+
+      if (error || !data?.id) {
+        console.error("[Supabase] Error guardando lead (fallback insert):", {
+          phone,
+          nss,
+          horario,
+          error,
+        });
+        return;
+      }
+
+      await setConversation(phone, {
+        state: conv.state,
+        lead_id: data.id,
+      });
+      console.log("[Supabase] Lead guardado (fallback insert):", { phone, nss, horario });
+      return;
+    } catch (err) {
+      console.error("[Supabase] Error guardando lead (fallback insert):", err);
+      return;
+    }
   }
 
   const ok = await actualizarLeadPorConversacion(phone, leadPayload);

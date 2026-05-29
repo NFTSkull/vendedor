@@ -4,7 +4,9 @@
 
 ### Cambio actual
 
-- **Lead provisional desde el primer mensaje:** al iniciar el flujo (`inicio`) se crea o reutiliza un lead en estado `nuevo` con `nss`/`horario` en `null`, se guarda su `lead_id` en `conversations` y se actualiza el mismo lead al capturar NSS y horario (sin insert tardío al final).
+- **Fix urgente lead provisional:** `ensureLeadProvisional` ahora inserta `nss: ""` y `horario: ""` (en lugar de `null`) para cumplir restricciones `NOT NULL` de la tabla `leads`.
+- **Respaldo en cierre de flujo:** al capturar horario, si la conversación no tiene `lead_id`, `botStepsCore` realiza `insert` de fallback del lead y luego enlaza `lead_id` en `conversations`.
+- **Lead provisional desde el primer mensaje:** al iniciar el flujo (`inicio`) se crea o reutiliza un lead en estado `nuevo` con `nss`/`horario` iniciales, se guarda su `lead_id` en `conversations` y se actualiza el mismo lead al capturar NSS y horario (sin insert tardío al final).
 - **Webhook enlazado por `lead_id` de conversación:** `POST /api/webhook` ahora llama `ensureLeadProvisional` antes de persistir mensajes y resuelve el lead con `conversations.lead_id` para asociar historial desde el primer “Hola”.
 - **CRM listado con acceso directo a chat:** en `app/crm/leads/page.tsx` se reemplazó la acción única `Ver` por dos botones (`Ver` y `Chat`) tanto en tabla de escritorio como en tarjetas móviles.
 - **Nueva vista full-screen de chat:** se creó `app/crm/leads/[id]/chat/page.tsx` con layout tipo WhatsApp (header verde fijo, área de mensajes `#ECE5DD`, separadores por fecha, autoscroll y barra inferior fija con input + botón circular `➤`).
