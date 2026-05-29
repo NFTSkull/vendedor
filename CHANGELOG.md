@@ -4,6 +4,9 @@
 
 ### Cambio actual
 
+- **Web Push en CRM:** agregado `app/manifest.json` para PWA y `public/sw.js` para recibir push/click a rutas del CRM.
+- **Suscripción de asesores a notificaciones:** nuevo endpoint `POST /api/crm/push/subscribe` (auth + Zod) y botón `Activar notificaciones` en `/crm/leads` para pedir permiso, registrar Service Worker y guardar suscripción.
+- **Notificación al crear lead nuevo:** en `POST /api/webhook`, cuando se detecta creación de lead `nuevo`, se envía push con título **Nuevo lead Mejoravit**, cuerpo con teléfono/horario y click a `/crm/leads/{id}`.
 - **Fix urgente lead provisional:** `ensureLeadProvisional` ahora inserta `nss: ""` y `horario: ""` (en lugar de `null`) para cumplir restricciones `NOT NULL` de la tabla `leads`.
 - **Respaldo en cierre de flujo:** al capturar horario, si la conversación no tiene `lead_id`, `botStepsCore` realiza `insert` de fallback del lead y luego enlaza `lead_id` en `conversations`.
 - **Lead provisional desde el primer mensaje:** al iniciar el flujo (`inicio`) se crea o reutiliza un lead en estado `nuevo` con `nss`/`horario` iniciales, se guarda su `lead_id` en `conversations` y se actualiza el mismo lead al capturar NSS y horario (sin insert tardío al final).

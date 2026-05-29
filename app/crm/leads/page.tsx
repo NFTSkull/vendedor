@@ -59,6 +59,17 @@ function resumenPrecalificacionLead(lead: Lead): {
   };
 }
 
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
 export default function CrmLeadsPage() {
   const router = useRouter();
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -73,6 +84,8 @@ export default function CrmLeadsPage() {
   const [resultado, setResultado] = useState<ResultadoPrecalificacionApi | null>(
     null,
   );
+  const [activandoPush, setActivandoPush] = useState(false);
+  const [pushMsg, setPushMsg] = useState("");
 
   const nuevosCount = useMemo(
     () => leads.filter((l) => l.estado === "nuevo").length,
@@ -121,6 +134,66 @@ export default function CrmLeadsPage() {
   function cerrarSesion() {
     localStorage.removeItem("crm_token");
     router.replace("/crm/login");
+  }
+
+  async function activarNotificaciones() {
+    if (typeof window === "undefined") return;
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setPushMsg("Este navegador no soporta notificaciones push.");
+      return;
+    }
+    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (!vapidPublicKey) {
+      setPushMsg("Falta configurar NEXT_PUBLIC_VAPID_PUBLIC_KEY.");
+      return;
+    }
+
+    const token = localStorage.getItem("crm_token");
+    if (!token) {
+      router.replace("/crm/login");
+      return;
+    }
+
+    setActivandoPush(true);
+    setPushMsg("");
+    try {
+      const permission =
+        Notification.permission === "granted"
+          ? "granted"
+          : await Notification.requestPermission();
+      if (permission !== "granted") {
+        setPushMsg("Permiso denegado para notificaciones.");
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.register("/sw.js");
+      const subscription =
+        (await registration.pushManager.getSubscription()) ??
+        (await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as BufferSource,
+        }));
+
+      const res = await fetch("/api/crm/push/subscribe", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ subscription: subscription.toJSON() }),
+      });
+
+      if (!res.ok) {
+        setPushMsg("No se pudo registrar la suscripción push.");
+        return;
+      }
+
+      setPushMsg("Notificaciones activadas.");
+    } catch {
+      setPushMsg("Error activando notificaciones.");
+    } finally {
+      setActivandoPush(false);
+    }
   }
 
   function abrirModalPrecalificar() {
@@ -203,6 +276,14 @@ export default function CrmLeadsPage() {
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={() => void activarNotificaciones()}
+              disabled={activandoPush}
+              className="self-start md:self-auto rounded-xl border border-emerald-600 px-4 py-2 text-sm text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+            >
+              {activandoPush ? "Activando..." : "Activar notificaciones"}
+            </button>
+            <button
+              type="button"
               onClick={abrirModalPrecalificar}
               className="self-start md:self-auto rounded-xl bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700"
             >
@@ -217,6 +298,9 @@ export default function CrmLeadsPage() {
             </button>
           </div>
         </header>
+        {pushMsg ? (
+          <p className="mb-3 text-sm text-slate-600">{pushMsg}</p>
+        ) : null}
 
         {loading ? (
           <section className="space-y-3">

@@ -2,6 +2,13 @@
 
 ## 2026-05-28
 
+- `app/manifest.json`: configuración base PWA para CRM (`start_url`, `display`, `theme_color` y `background_color`).
+- `public/sw.js`: Service Worker para `push` y `notificationclick` con navegación a la URL del payload.
+- `app/api/crm/push/subscribe/route.ts`: endpoint protegido para registrar/actualizar suscripciones push en `crm_push_subscriptions`.
+- `app/crm/leads/page.tsx`: botón `Activar notificaciones` con solicitud de permiso, registro de SW y alta de suscripción mediante `/api/crm/push/subscribe`.
+- `lib/pushNotifications.ts`: envío de web push con `web-push` a suscripciones activas y limpieza automática de endpoints expirados (404/410).
+- `app/api/webhook/route.ts`: al crear lead nuevo se dispara push `Nuevo lead Mejoravit` con deep-link a `/crm/leads/{id}`.
+- Requisito de esquema Supabase: tabla `crm_push_subscriptions` (endpoint, p256dh, auth, advisor_id, timestamps).
 - `lib/leadProvisional.ts`: corrección de compatibilidad con esquema `leads` (`nss`/`horario` NOT NULL) usando strings vacíos en el insert provisional.
 - `lib/botStepsCore.ts`: fallback de seguridad al cerrar horario; si la conversación llega sin `lead_id`, se hace `insert` del lead y se enlaza en `conversations` antes de finalizar.
 - `lib/leadProvisional.ts`: creación de lead provisional al primer contacto (`whatsapp_phone`, `estado: nuevo`) y actualización incremental del mismo registro durante el flujo.

@@ -1,0 +1,11 @@
+{
+  "name": "CRM Mejoravit",
+  "short_name": "CRM",
+  "description": "CRM para seguimiento de leads Mejoravit",
+  "start_url": "/crm/leads",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ECE5DD",
+  "theme_color": "#075E54",
+  "lang": "es-MX"
+}

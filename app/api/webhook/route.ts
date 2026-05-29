@@ -11,6 +11,7 @@ import {
 } from "@/lib/messagesDb";
 import { getMetaWebhookVerificationResponse } from "@/lib/metaWebhookVerification";
 import { extraerNssOnceDigitos } from "@/lib/nss";
+import { enviarPushNuevoLead } from "@/lib/pushNotifications";
 import { extraerTextosEntrantes } from "@/lib/parseWhatsAppWebhook";
 import { enviarMensajeTextoWa } from "@/lib/whatsappCloud";
 
@@ -64,6 +65,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 
     console.log("[WEBHOOK_DEBUG] from extraído (parseWhatsAppWebhook):", m.from);
 
+    const leadAntes = await buscarLeadPorTelefono(m.from);
     await ensureLeadProvisional(m.from);
     const conversacionLead = await getConversation(m.from);
 
@@ -79,6 +81,13 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
     if (!leadChat) {
       leadChat = await buscarLeadPorTelefono(m.from);
+    }
+    if (!leadAntes && leadChat) {
+      await enviarPushNuevoLead({
+        leadId: leadChat.id,
+        telefono: leadChat.whatsapp_phone,
+        horario: null,
+      });
     }
 
     let mensajeEntranteGuardado = false;

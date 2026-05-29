@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   guardarMensaje: vi.fn(),
   getConversation: vi.fn(),
   ensureLeadProvisional: vi.fn(),
+  enviarPushNuevoLead: vi.fn(),
   procesarYEvolucionar: vi.fn(),
   enviarMensajeTextoWa: vi.fn(),
 }));
@@ -27,6 +28,10 @@ vi.mock("@/lib/conversationMemory", () => ({
 
 vi.mock("@/lib/leadProvisional", () => ({
   ensureLeadProvisional: mocks.ensureLeadProvisional,
+}));
+
+vi.mock("@/lib/pushNotifications", () => ({
+  enviarPushNuevoLead: mocks.enviarPushNuevoLead,
 }));
 
 vi.mock("@/lib/botSteps", () => ({
@@ -61,6 +66,8 @@ describe("POST /api/webhook", () => {
       lead_id: "lead-1",
     });
     mocks.ensureLeadProvisional.mockResolvedValue("lead-1");
+    mocks.enviarPushNuevoLead.mockResolvedValue(undefined);
+    mocks.buscarLeadPorTelefono.mockResolvedValue(null);
     mocks.buscarLeadPorId.mockResolvedValue({
       id: "lead-1",
       whatsapp_phone: "5215550000000",
