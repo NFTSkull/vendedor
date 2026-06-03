@@ -32,6 +32,9 @@ declare global {
 }
 
 const FB_SDK_VERSION = "v19.0";
+const FB_SDK_SCRIPT_ID = "facebook-jssdk";
+const FB_SDK_SRC = "https://connect.facebook.net/en_US/sdk.js";
+const SDK_INIT_TIMEOUT_MS = 15000;
 
 type Props = {
   authorized: boolean;
@@ -46,11 +49,16 @@ export default function ConectarWhatsAppClient({
   metaAppId,
   configId,
 }: Props) {
-  const [sdkReady, setSdkReady] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [sdkLoaded, setSdkLoaded] = useState(false);
+  const [sdkInitialized, setSdkInitialized] = useState(false);
+  const [sdkError, setSdkError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const sessionInfoRef = useRef<Record<string, unknown> | null>(null);
+  const initDoneRef = useRef(false);
+
+  const hasMetaConfig = Boolean(metaAppId?.trim() && configId?.trim());
 
   const onMessage = useCallback((event: MessageEvent) => {
     if (event.origin !== "https://www.facebook.com") return;
@@ -70,40 +78,95 @@ export default function ConectarWhatsAppClient({
   useEffect(() => {
     if (!authorized || !metaAppId) return;
 
-    window.addEventListener("message", onMessage);
+    let cancelled = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
-    window.fbAsyncInit = () => {
-      window.FB?.init({
-        appId: metaAppId,
-        cookie: true,
-        xfbml: true,
-        version: FB_SDK_VERSION,
-      });
-      setSdkReady(true);
-    };
+    const markInitialized = () => {
+      if (cancelled || initDoneRef.current) return true;
+      if (!window.FB) return false;
 
-    if (document.getElementById("facebook-jssdk")) {
-      if (window.FB) {
+      try {
         window.FB.init({
           appId: metaAppId,
           cookie: true,
-          xfbml: true,
+          xfbml: false,
           version: FB_SDK_VERSION,
         });
-        setSdkReady(true);
+        initDoneRef.current = true;
+        setSdkLoaded(true);
+        setSdkInitialized(true);
+        setSdkError("");
+        return true;
+      } catch {
+        setSdkError("No se pudo inicializar Facebook SDK");
+        return false;
+      }
+    };
+
+    const waitForFbAndInit = () => {
+      if (markInitialized()) {
+        if (pollTimer) clearInterval(pollTimer);
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+        return;
+      }
+
+      pollTimer = setInterval(() => {
+        if (cancelled) return;
+        if (markInitialized()) {
+          if (pollTimer) clearInterval(pollTimer);
+          if (timeoutTimer) clearTimeout(timeoutTimer);
+        }
+      }, 100);
+    };
+
+    window.addEventListener("message", onMessage);
+
+    // fbAsyncInit debe existir ANTES de que el script del SDK se cargue/ejecute.
+    window.fbAsyncInit = () => {
+      if (cancelled) return;
+      setSdkLoaded(true);
+      markInitialized();
+    };
+
+    const existingScript = document.getElementById(FB_SDK_SCRIPT_ID);
+
+    if (existingScript) {
+      setSdkLoaded(true);
+      if (!markInitialized()) {
+        waitForFbAndInit();
       }
     } else {
       const script = document.createElement("script");
-      script.id = "facebook-jssdk";
+      script.id = FB_SDK_SCRIPT_ID;
       script.async = true;
       script.defer = true;
-      script.crossOrigin = "anonymous";
-      script.src = "https://connect.facebook.net/en_US/sdk.js";
+      script.src = FB_SDK_SRC;
+      script.onload = () => {
+        if (cancelled) return;
+        setSdkLoaded(true);
+        if (!initDoneRef.current) {
+          waitForFbAndInit();
+        }
+      };
+      script.onerror = () => {
+        if (cancelled) return;
+        setSdkError("No se pudo inicializar Facebook SDK");
+      };
       document.body.appendChild(script);
     }
 
+    timeoutTimer = setTimeout(() => {
+      if (cancelled || initDoneRef.current) return;
+      setSdkError("No se pudo inicializar Facebook SDK");
+      if (pollTimer) clearInterval(pollTimer);
+    }, SDK_INIT_TIMEOUT_MS);
+
     return () => {
+      cancelled = true;
       window.removeEventListener("message", onMessage);
+      if (pollTimer) clearInterval(pollTimer);
+      if (timeoutTimer) clearTimeout(timeoutTimer);
     };
   }, [authorized, metaAppId, onMessage]);
 
@@ -136,21 +199,23 @@ export default function ConectarWhatsAppClient({
     );
   }
 
-  function onConnectClick() {
+  function handleConnect() {
     setErrorMsg("");
     setSuccessMsg("");
 
-    if (!sdkReady || !window.FB) {
-      setErrorMsg("El SDK de Facebook aún no está listo. Espera un momento e intenta de nuevo.");
+    if (!hasMetaConfig) {
+      setErrorMsg("Falta configuración de Meta en el servidor.");
       return;
     }
 
-    if (!configId) {
-      setErrorMsg("Falta NEXT_PUBLIC_META_EMBEDDED_SIGNUP_CONFIG_ID en el servidor.");
+    if (!window.FB || !sdkInitialized) {
+      setErrorMsg(
+        "Facebook SDK aún no está listo. Espera unos segundos e intenta de nuevo.",
+      );
       return;
     }
 
-    setLoading(true);
+    setIsSubmitting(true);
     sessionInfoRef.current = null;
 
     window.FB.login(
@@ -170,7 +235,7 @@ export default function ConectarWhatsAppClient({
               err instanceof Error ? err.message : "No se pudo completar la conexión.",
             );
           } finally {
-            setLoading(false);
+            setIsSubmitting(false);
           }
         })();
       },
@@ -185,6 +250,23 @@ export default function ConectarWhatsAppClient({
         },
       },
     );
+  }
+
+  const buttonDisabled =
+    !hasMetaConfig || !sdkInitialized || isSubmitting || Boolean(sdkError);
+
+  function buttonLabel(): string {
+    if (isSubmitting) return "Conectando...";
+    if (sdkError) return "SDK no disponible";
+    if (!sdkInitialized) return "Cargando Facebook SDK...";
+    return "Conectar WhatsApp Business App";
+  }
+
+  function sdkStatusMessage(): string | null {
+    if (sdkError) return sdkError;
+    if (sdkInitialized) return "SDK listo";
+    if (sdkLoaded || authorized) return "Cargando Facebook SDK...";
+    return null;
   }
 
   if (!authorized) {
@@ -218,6 +300,8 @@ export default function ConectarWhatsAppClient({
     );
   }
 
+  const statusLine = sdkStatusMessage();
+
   return (
     <main className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
       <section className="max-w-lg w-full rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
@@ -233,17 +317,24 @@ export default function ConectarWhatsAppClient({
           <li>Guardado seguro en servidor (sin exponer token al navegador)</li>
         </ol>
 
+        {statusLine ? (
+          <p
+            className={`mt-4 text-sm ${
+              sdkError ? "text-red-600" : sdkInitialized ? "text-emerald-700" : "text-slate-500"
+            }`}
+            role="status"
+          >
+            {statusLine}
+          </p>
+        ) : null}
+
         <button
           type="button"
-          onClick={onConnectClick}
-          disabled={loading || !sdkReady}
+          onClick={handleConnect}
+          disabled={buttonDisabled}
           className="mt-6 w-full rounded-xl bg-[#1877F2] px-4 py-3 text-white font-medium hover:bg-[#166FE5] disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading
-            ? "Conectando..."
-            : sdkReady
-              ? "Conectar WhatsApp Business App"
-              : "Cargando Facebook SDK..."}
+          {buttonLabel()}
         </button>
 
         {errorMsg ? (
