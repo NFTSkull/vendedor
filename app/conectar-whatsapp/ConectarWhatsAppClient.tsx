@@ -31,17 +31,19 @@ declare global {
         callback: (response: FbLoginResponse) => void,
         options: Record<string, unknown>,
       ) => void;
+      getLoginStatus: (callback: (response: unknown) => void) => void;
     };
     fbAsyncInit?: () => void;
   }
 }
 
-export const SIGNUP_CLIENT_VERSION = "sdk-debug-e0a6d6b-2";
+export const SIGNUP_CLIENT_VERSION = "sdk-debug-get-login-status-1";
 
 const FB_SDK_VERSION = "v19.0";
 const FB_SDK_SCRIPT_ID = "facebook-jssdk";
 const FB_SDK_SRC = "https://connect.facebook.net/en_US/sdk.js";
 const SDK_INIT_TIMEOUT_MS = 15000;
+const GET_LOGIN_STATUS_TIMEOUT_MS = 10000;
 
 let sdkLoadPromise: Promise<void> | null = null;
 let sdkLoadAppId: string | null = null;
@@ -187,6 +189,86 @@ function loadFacebookSdkOnce(appId: string, diag?: SdkDiagHandlers): Promise<voi
   return sdkLoadPromise;
 }
 
+function isBeforeInitError(message: string): boolean {
+  return message.toLowerCase().includes("before fb.init");
+}
+
+function probeGetLoginStatusOnce(diag?: SdkDiagHandlers): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const fb = window.FB;
+    if (!fb || typeof fb.getLoginStatus !== "function") {
+      reject(new Error("FB.getLoginStatus no disponible"));
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      reject(new Error("FB.getLoginStatus no respondió a tiempo"));
+    }, GET_LOGIN_STATUS_TIMEOUT_MS);
+
+    try {
+      fb.getLoginStatus(() => {
+        clearTimeout(timeoutId);
+        diag?.onEvent("FB.getLoginStatus callback ok");
+        resolve();
+      });
+    } catch (error) {
+      clearTimeout(timeoutId);
+      const message = error instanceof Error ? error.message : String(error);
+      reject(new Error(message));
+    }
+  });
+}
+
+async function probeGetLoginStatusWithRetry(
+  appId: string,
+  diag?: SdkDiagHandlers,
+): Promise<void> {
+  const maxAttempts = 3;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      if (window.FB) {
+        runFbInit(appId);
+        diag?.onEvent(`FB.init before getLoginStatus (attempt ${attempt})`);
+      }
+      await probeGetLoginStatusOnce(diag);
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const shouldRetry = isBeforeInitError(message) && attempt < maxAttempts;
+      if (!shouldRetry) {
+        throw error;
+      }
+      diag?.onEvent(`FB.getLoginStatus retry ${attempt} (${message})`);
+      await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+    }
+  }
+}
+
+/**
+ * Confirma que el SDK acepta getLoginStatus (prueba real de init) antes de FB.login.
+ */
+async function ensureFacebookLoginReady(
+  appId: string,
+  diag?: SdkDiagHandlers,
+): Promise<void> {
+  const trimmedAppId = appId?.trim();
+  if (!trimmedAppId) {
+    throw new Error("Falta NEXT_PUBLIC_META_APP_ID");
+  }
+
+  diag?.onEvent("ensureFacebookLoginReady: load SDK");
+  await loadFacebookSdkOnce(trimmedAppId, diag);
+
+  if (!window.FB) {
+    throw new Error("window.FB no disponible");
+  }
+
+  diag?.onEvent("ensureFacebookLoginReady: probing getLoginStatus");
+  await probeGetLoginStatusWithRetry(trimmedAppId, diag);
+  fbSdkInitCompletedGlobal = true;
+}
+
 type Props = {
   authorized: boolean;
   setupToken: string;
@@ -215,6 +297,8 @@ export default function ConectarWhatsAppClient({
   const [fbInitCompletedDisplay, setFbInitCompletedDisplay] = useState(false);
   const [hasWindowFB, setHasWindowFB] = useState(false);
   const [hasSdkScriptTag, setHasSdkScriptTag] = useState(false);
+  const [loginReadinessChecked, setLoginReadinessChecked] = useState(false);
+  const [loginReadinessError, setLoginReadinessError] = useState<string | null>(null);
   const sessionInfoRef = useRef<Record<string, unknown> | null>(null);
   const fbInitCompletedRef = useRef(false);
 
@@ -291,17 +375,25 @@ export default function ConectarWhatsAppClient({
     let cancelled = false;
 
     window.addEventListener("message", onMessage);
-    setLastSdkEvent("mount: starting SDK preload");
+    setLastSdkEvent("mount: ensureFacebookLoginReady");
+    setLoginReadinessChecked(false);
+    setLoginReadinessError(null);
 
-    void loadFacebookSdkOnce(metaAppId, sdkDiagHandlers())
+    void ensureFacebookLoginReady(metaAppId, sdkDiagHandlers())
       .then(() => {
         if (cancelled) return;
         markSdkReady();
+        setLoginReadinessChecked(true);
+        setLoginReadinessError(null);
+        setLastSdkEvent("FB.getLoginStatus confirmed on mount");
       })
       .catch((err: unknown) => {
         if (cancelled) return;
         const message =
           err instanceof Error ? err.message : "No se pudo inicializar Facebook SDK";
+        setLoginReadinessChecked(false);
+        setLoginReadinessError(message);
+        setLastSdkEvent("FB.getLoginStatus failed before login");
         markSdkFailed(message);
       });
 
@@ -348,19 +440,6 @@ export default function ConectarWhatsAppClient({
     );
   }
 
-  function buildLoginReadiness() {
-    refreshDomDiagnostics();
-    return {
-      hasMetaAppId,
-      hasConfigId,
-      hasWindowFB: Boolean(window.FB),
-      sdkInitialized,
-      fbInitCompletedRef: fbInitCompletedRef.current,
-      fbSdkInitCompletedGlobal,
-      hasSdkScriptTag: Boolean(document.getElementById(FB_SDK_SCRIPT_ID)),
-    };
-  }
-
   async function handleConnect() {
     setErrorMsg("");
     setSuccessMsg("");
@@ -379,74 +458,26 @@ export default function ConectarWhatsAppClient({
     }
 
     setIsSubmitting(true);
-    setLastSdkEvent("handleConnect: awaiting SDK");
+    setLoginReadinessChecked(false);
+    setLoginReadinessError(null);
+    setLastSdkEvent("handleConnect: ensureFacebookLoginReady");
 
     try {
-      await loadFacebookSdkOnce(metaAppId, sdkDiagHandlers());
-      syncFbInitCompleted(fbSdkInitCompletedGlobal);
+      await ensureFacebookLoginReady(metaAppId, sdkDiagHandlers());
+      syncFbInitCompleted(true);
       refreshDomDiagnostics();
-
-      const readiness = buildLoginReadiness();
-
-      if (!readiness.hasWindowFB) {
-        const msg = "Facebook SDK no terminó de inicializarse (window.FB ausente).";
-        setLastError(msg);
-        setErrorMsg(msg);
-        setIsSubmitting(false);
-        return;
-      }
-
-      if (!readiness.sdkInitialized || !readiness.fbInitCompletedRef) {
-        const msg = "Facebook SDK no terminó de inicializarse (estado local incompleto).";
-        setLastError(msg);
-        setErrorMsg(msg);
-        setIsSubmitting(false);
-        return;
-      }
-
-      if (!readiness.fbSdkInitCompletedGlobal) {
-        try {
-          runFbInit(metaAppId);
-          fbSdkInitCompletedGlobal = true;
-          syncFbInitCompleted(true);
-          setLastSdkEvent("FB.init completed");
-        } catch {
-          const msg = "Facebook SDK no terminó de inicializarse (FB.init falló).";
-          setLastError(msg);
-          setErrorMsg(msg);
-          setIsSubmitting(false);
-          return;
-        }
-      }
-
-      const preLogin = buildLoginReadiness();
-      const readyForLogin =
-        preLogin.hasMetaAppId &&
-        preLogin.hasConfigId &&
-        preLogin.hasWindowFB &&
-        preLogin.sdkInitialized &&
-        preLogin.fbInitCompletedRef &&
-        preLogin.fbSdkInitCompletedGlobal;
-
-      if (!readyForLogin) {
-        const msg =
-          "Bloqueado: no se llama FB.login porque faltan banderas de inicialización. " +
-          `sdkInitialized=${boolLabel(preLogin.sdkInitialized)}, ` +
-          `fbInitCompletedRef=${boolLabel(preLogin.fbInitCompletedRef)}, ` +
-          `fbSdkInitCompletedGlobal=${boolLabel(preLogin.fbSdkInitCompletedGlobal)}, ` +
-          `hasWindowFB=${boolLabel(preLogin.hasWindowFB)}`;
-        setLastError(msg);
-        setErrorMsg("Facebook SDK no terminó de inicializarse.");
-        setIsSubmitting(false);
-        return;
-      }
-
-      setLastSdkEvent("calling FB.login after init");
+      setLoginReadinessChecked(true);
+      setLoginReadinessError(null);
+      setLastSdkEvent("FB.getLoginStatus confirmed; calling FB.login");
       setLastError("");
       devLog("Calling FB.login");
       sessionInfoRef.current = null;
 
-      window.FB!.login(
+      if (!window.FB) {
+        throw new Error("window.FB no disponible tras ensureFacebookLoginReady");
+      }
+
+      window.FB.login(
         (response) => {
           void (async () => {
             try {
@@ -483,35 +514,34 @@ export default function ConectarWhatsAppClient({
         },
       );
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Facebook SDK no terminó de inicializarse.";
-      setErrorMsg(message);
-      markSdkFailed(message);
+      const realMessage = err instanceof Error ? err.message : String(err);
+      setLoginReadinessChecked(false);
+      setLoginReadinessError(realMessage);
+      setLastSdkEvent("FB.getLoginStatus failed before login");
+      setLastError(realMessage);
+      setErrorMsg(
+        "Facebook SDK no quedó listo para iniciar sesión. Recarga la página e intenta de nuevo.",
+      );
+      markSdkFailed(realMessage);
       setIsSubmitting(false);
     }
   }
 
-  const canUseFbLogin =
-    hasMetaConfig &&
-    sdkInitialized &&
-    fbInitCompletedDisplay &&
-    fbSdkInitCompletedGlobal &&
-    hasWindowFB &&
-    !sdkError;
-
-  const buttonEnabled = canUseFbLogin && !isSubmitting;
+  const buttonEnabled =
+    hasMetaConfig && loginReadinessChecked && !loginReadinessError && !isSubmitting && !sdkError;
   const buttonDisabled = !buttonEnabled;
 
   function buttonLabel(): string {
     if (isSubmitting) return "Conectando...";
     if (sdkError) return "SDK no disponible";
-    if (!sdkInitialized || !fbInitCompletedDisplay) return "Cargando Facebook SDK...";
+    if (!loginReadinessChecked) return "Cargando Facebook SDK...";
     return "Conectar WhatsApp Business App";
   }
 
   function sdkStatusMessage(): string | null {
-    if (sdkError) return sdkError;
-    if (sdkInitialized && fbInitCompletedDisplay && hasWindowFB) return "SDK listo";
+    if (sdkError || loginReadinessError) return sdkError || loginReadinessError;
+    if (loginReadinessChecked) return "SDK listo (getLoginStatus OK)";
+    if (sdkInitialized && fbInitCompletedDisplay && hasWindowFB) return "Cargando validación SDK...";
     if (sdkLoaded || hasMetaConfig) return "Cargando Facebook SDK...";
     return null;
   }
@@ -526,6 +556,8 @@ export default function ConectarWhatsAppClient({
       fbSdkInitCompletedGlobal,
       hasSdkScriptTag,
       buttonEnabled,
+      loginReadinessChecked,
+      loginReadinessError: loginReadinessError ?? "—",
       lastSdkEvent,
       lastError: lastError || sdkError || errorMsg || "—",
     };
@@ -571,6 +603,14 @@ export default function ConectarWhatsAppClient({
           <div>
             <dt className="inline text-slate-500">buttonEnabled: </dt>
             <dd className="inline">{boolLabel(readiness.buttonEnabled)}</dd>
+          </div>
+          <div>
+            <dt className="inline text-slate-500">loginReadinessChecked: </dt>
+            <dd className="inline">{boolLabel(readiness.loginReadinessChecked)}</dd>
+          </div>
+          <div>
+            <dt className="inline text-slate-500">loginReadinessError: </dt>
+            <dd className="inline break-all text-red-700">{readiness.loginReadinessError}</dd>
           </div>
           <div>
             <dt className="inline text-slate-500">lastSdkEvent: </dt>
