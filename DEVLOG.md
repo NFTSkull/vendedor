@@ -1,5 +1,11 @@
 # DEVLOG
 
+## 2026-05-29 (webhook multi-número Fase D)
+
+- `lib/parseWhatsAppWebhook.ts`: `phoneNumberId` desde `metadata.phone_number_id`; `payloadDebeIgnorarPorEcos` para ecos sin mensajes entrantes.
+- `app/api/webhook/route.ts`: solo si `WHATSAPP_MULTI_NUMBER_ENABLED=true` — resolver por `phone_number_id`, ecos ignorados, try/catch con fallback env. Con flag `false`/ausente: comportamiento idéntico al anterior.
+- **Sin cambios** en `botSteps.ts`, `botStepsCore.ts`, `metaWebhookVerification.ts`, ni env vars existentes.
+
 ## 2026-05-29 (fix FB.init antes de FB.login)
 
 - `ConectarWhatsAppClient.tsx`: orden Meta estricto — `fbAsyncInit` → `FB.init` → `setSdkReady(true)` → luego script al DOM. Botón `disabled={!sdkReady || loading}`; guard en `handleConectar`. Eliminados polling, `setTimeout` y `ensureFacebookLoginReady`. Versión diagnóstico `sdk-fbasyncinit-1`.

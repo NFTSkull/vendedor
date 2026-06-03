@@ -12,11 +12,16 @@ import {
 import { getMetaWebhookVerificationResponse } from "@/lib/metaWebhookVerification";
 import { extraerNssOnceDigitos } from "@/lib/nss";
 import { enviarPushNuevoLead } from "@/lib/pushNotifications";
-import { extraerTextosEntrantes } from "@/lib/parseWhatsAppWebhook";
+import { extraerTextosEntrantes, payloadDebeIgnorarPorEcos } from "@/lib/parseWhatsAppWebhook";
+import { resolveWhatsAppAccount } from "@/lib/whatsappAccountResolver";
 import { enviarMensajeTextoWa } from "@/lib/whatsappCloud";
 
 export const runtime = "nodejs";
 const ultimoWamidPorTelefono = new Map<string, string>();
+
+function isMultiNumberEnabled(): boolean {
+  return process.env.WHATSAPP_MULTI_NUMBER_ENABLED === "true";
+}
 
 export async function GET(req: NextRequest): Promise<Response> {
   const verified = getMetaWebhookVerificationResponse(
@@ -41,6 +46,17 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   console.log("[WEBHOOK_DEBUG] payload completo (Meta):", JSON.stringify(payload, null, 2));
 
+  if (isMultiNumberEnabled()) {
+    try {
+      if (payloadDebeIgnorarPorEcos(payload)) {
+        console.log("[WEBHOOK_DEBUG] eco WhatsApp ignorado (multi-número)");
+        return Response.json({}, { status: 200 });
+      }
+    } catch (err) {
+      console.error("[webhook] error detectando ecos WhatsApp, continúa flujo normal:", err);
+    }
+  }
+
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const graphVersion =
@@ -54,6 +70,21 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   for (const m of mensajes) {
+    let resolvedAccessToken = accessToken;
+    let resolvedPhoneNumberId = phoneNumberId;
+
+    if (isMultiNumberEnabled()) {
+      try {
+        const account = await resolveWhatsAppAccount(m.phoneNumberId ?? undefined);
+        if (account?.accessToken && account.phoneNumberId) {
+          resolvedAccessToken = account.accessToken;
+          resolvedPhoneNumberId = account.phoneNumberId;
+        }
+      } catch (err) {
+        console.error("[webhook] resolveWhatsAppAccount fallback env:", err);
+      }
+    }
+
     if (m.wamid) {
       const ultimo = ultimoWamidPorTelefono.get(m.from);
       if (ultimo === m.wamid) {
@@ -157,8 +188,8 @@ export async function POST(req: NextRequest): Promise<Response> {
       extraerNssOnceDigitos(m.body)
     ) {
       const espera = await enviarMensajeTextoWa({
-        phoneNumberId,
-        accessToken,
+        phoneNumberId: resolvedPhoneNumberId,
+        accessToken: resolvedAccessToken,
         graphVersion,
         to: m.from,
         body: "Un momento, estoy consultando tu información en Infonavit... ⏳",
@@ -185,8 +216,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     console.log("[WEBHOOK_DEBUG] to usado en Graph (enviarMensajeTextoWa):", m.from);
 
     const envio = await enviarMensajeTextoWa({
-      phoneNumberId,
-      accessToken,
+      phoneNumberId: resolvedPhoneNumberId,
+      accessToken: resolvedAccessToken,
       graphVersion,
       to: m.from,
       body: reply,

@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   extraerTextosEntrantes: vi.fn(),
+  payloadDebeIgnorarPorEcos: vi.fn(),
+  resolveWhatsAppAccount: vi.fn(),
   buscarLeadPorTelefono: vi.fn(),
   buscarLeadPorId: vi.fn(),
   guardarMensaje: vi.fn(),
@@ -14,6 +16,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/parseWhatsAppWebhook", () => ({
   extraerTextosEntrantes: mocks.extraerTextosEntrantes,
+  payloadDebeIgnorarPorEcos: mocks.payloadDebeIgnorarPorEcos,
+}));
+
+vi.mock("@/lib/whatsappAccountResolver", () => ({
+  resolveWhatsAppAccount: mocks.resolveWhatsAppAccount,
 }));
 
 vi.mock("@/lib/messagesDb", () => ({
@@ -55,9 +62,12 @@ describe("POST /api/webhook", () => {
     process.env.WHATSAPP_ACCESS_TOKEN = "token";
     process.env.WHATSAPP_PHONE_NUMBER_ID = "phone-id";
     process.env.WHATSAPP_GRAPH_API_VERSION = "v19.0";
+    delete process.env.WHATSAPP_MULTI_NUMBER_ENABLED;
 
+    mocks.payloadDebeIgnorarPorEcos.mockReturnValue(false);
+    mocks.resolveWhatsAppAccount.mockResolvedValue(null);
     mocks.extraerTextosEntrantes.mockReturnValue([
-      { from: "5215550000000", body: "Hola", wamid: "wamid.1" },
+      { from: "5215550000000", body: "Hola", wamid: "wamid.1", phoneNumberId: null },
     ]);
     mocks.getConversation.mockResolvedValue({
       state: "inicio",
@@ -106,7 +116,7 @@ describe("POST /api/webhook", () => {
 
   it("guarda entrante cuando el lead se crea durante el flujo", async () => {
     mocks.extraerTextosEntrantes.mockReturnValue([
-      { from: "5215550000000", body: "Hola", wamid: "wamid.2" },
+      { from: "5215550000000", body: "Hola", wamid: "wamid.2", phoneNumberId: null },
     ]);
     mocks.getConversation
       .mockResolvedValueOnce({
@@ -154,6 +164,7 @@ describe("POST /api/webhook", () => {
         from: "5215550000000",
         body: "Mi NSS es 12345678901",
         wamid: "wamid.3",
+        phoneNumberId: null,
       },
     ]);
     mocks.getConversation.mockResolvedValue({
@@ -188,5 +199,73 @@ describe("POST /api/webhook", () => {
       direccion: "saliente",
       contenido: "Respuesta del bot",
     });
+  });
+
+  it("con multi-número desactivado no llama al resolver", async () => {
+    const req = new Request("http://localhost/api/webhook", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+
+    await POST(req as never);
+
+    expect(mocks.resolveWhatsAppAccount).not.toHaveBeenCalled();
+    expect(mocks.enviarMensajeTextoWa).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phoneNumberId: "phone-id",
+        accessToken: "token",
+      }),
+    );
+  });
+
+  it("con multi-número activo usa credenciales resueltas por phone_number_id", async () => {
+    process.env.WHATSAPP_MULTI_NUMBER_ENABLED = "true";
+    mocks.extraerTextosEntrantes.mockReturnValue([
+      {
+        from: "5215550000000",
+        body: "Hola",
+        wamid: "wamid.multi",
+        phoneNumberId: "jefe-phone-id",
+      },
+    ]);
+    mocks.resolveWhatsAppAccount.mockResolvedValue({
+      owner: "jefe_1",
+      mode: "coexistence",
+      phoneNumberId: "jefe-phone-id",
+      accessToken: "jefe-token",
+      source: "db",
+    });
+
+    const req = new Request("http://localhost/api/webhook", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+
+    await POST(req as never);
+
+    expect(mocks.resolveWhatsAppAccount).toHaveBeenCalledWith("jefe-phone-id");
+    expect(mocks.enviarMensajeTextoWa).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phoneNumberId: "jefe-phone-id",
+        accessToken: "jefe-token",
+      }),
+    );
+  });
+
+  it("con multi-número activo ignora payload de ecos y responde 200", async () => {
+    process.env.WHATSAPP_MULTI_NUMBER_ENABLED = "true";
+    mocks.payloadDebeIgnorarPorEcos.mockReturnValue(true);
+    mocks.extraerTextosEntrantes.mockReturnValue([]);
+
+    const req = new Request("http://localhost/api/webhook", {
+      method: "POST",
+      body: JSON.stringify({ entry: [{ changes: [{ field: "messages" }] }] }),
+    });
+
+    const res = await POST(req as never);
+
+    expect(res.status).toBe(200);
+    expect(mocks.ensureLeadProvisional).not.toHaveBeenCalled();
+    expect(mocks.procesarYEvolucionar).not.toHaveBeenCalled();
   });
 });

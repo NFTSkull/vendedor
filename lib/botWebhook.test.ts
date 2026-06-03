@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { extraerNssOnceDigitos } from "@/lib/nss";
-import { extraerTextosEntrantes } from "@/lib/parseWhatsAppWebhook";
+import {
+  extraerTextosEntrantes,
+  payloadDebeIgnorarPorEcos,
+} from "@/lib/parseWhatsAppWebhook";
 
 describe("extraerNssOnceDigitos", () => {
   it("acepta exactamente 11 dígitos", () => {
@@ -44,8 +47,90 @@ describe("extraerTextosEntrantes", () => {
       ],
     };
     expect(extraerTextosEntrantes(body)).toEqual([
-      { from: "521234567890", body: "Hola mundo", wamid: "wamid.HBgLMjE..." },
+      {
+        from: "521234567890",
+        body: "Hola mundo",
+        wamid: "wamid.HBgLMjE...",
+        phoneNumberId: null,
+      },
     ]);
+  });
+
+  it("extrae metadata.phone_number_id por entry", () => {
+    const body = {
+      entry: [
+        {
+          changes: [
+            {
+              field: "messages",
+              value: {
+                metadata: { phone_number_id: "123456789012345" },
+                messages: [
+                  {
+                    id: "wamid.abc",
+                    from: "521234567890",
+                    type: "text",
+                    text: { body: "Hola" },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    expect(extraerTextosEntrantes(body)).toEqual([
+      {
+        from: "521234567890",
+        body: "Hola",
+        wamid: "wamid.abc",
+        phoneNumberId: "123456789012345",
+      },
+    ]);
+  });
+
+  it("payloadDebeIgnorarPorEcos es true solo con ecos sin mensajes de texto", () => {
+    const soloEco = {
+      entry: [
+        {
+          changes: [
+            {
+              field: "messages",
+              value: {
+                metadata: { phone_number_id: "111" },
+                message_echoes: [{ id: "echo-1", from: "521111", type: "text" }],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    expect(payloadDebeIgnorarPorEcos(soloEco)).toBe(true);
+
+    const ecoYMensaje = {
+      entry: [
+        {
+          changes: [
+            {
+              field: "messages",
+              value: {
+                metadata: { phone_number_id: "111" },
+                message_echoes: [{ id: "echo-1" }],
+                messages: [
+                  {
+                    id: "wamid.in",
+                    from: "521234567890",
+                    type: "text",
+                    text: { body: "Hola" },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    expect(payloadDebeIgnorarPorEcos(ecoYMensaje)).toBe(false);
   });
 
   it("ignora payloads sin mensajes de texto", () => {

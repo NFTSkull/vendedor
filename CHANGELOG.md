@@ -1,5 +1,11 @@
 # Changelog
 
+## [Sin versión semver] — 2026-05-29 (continuación)
+
+### Cambio actual
+
+- **Webhook multi-número (Fase D, opt-in):** con `WHATSAPP_MULTI_NUMBER_ENABLED=true`, el webhook resuelve credenciales por `metadata.phone_number_id` vía `resolveWhatsAppAccount` y responde desde el mismo número; ecos (`message_echoes` / `smb_message_echoes`) se ignoran. Default `false` = sin cambio de runtime. Fallback siempre a `WHATSAPP_PHONE_NUMBER_ID` / `WHATSAPP_ACCESS_TOKEN`.
+
 ## [Sin versión semver] — 2026-05-29
 
 ### Cambio actual
