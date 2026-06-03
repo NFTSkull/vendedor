@@ -1,5 +1,11 @@
 # Changelog
 
+## [Sin versión semver] — 2026-05-29
+
+### Cambio actual
+
+- **Fix timing Facebook SDK (conectar-whatsapp):** `ConectarWhatsAppClient` asigna `window.fbAsyncInit` antes de insertar `sdk.js`; `sdkReady` solo pasa a `true` tras `FB.init()` en ese callback. El botón queda `disabled` hasta entonces y `handleConectar` no llama `FB.login` sin guard. Sin `setTimeout` ni polling. Build `sdk-fbasyncinit-1`.
+
 ## [Sin versión semver] — 2026-05-28
 
 ### Cambio actual

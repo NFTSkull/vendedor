@@ -1,5 +1,10 @@
 # DEVLOG
 
+## 2026-05-29 (fix FB.init antes de FB.login)
+
+- `ConectarWhatsAppClient.tsx`: orden Meta estricto — `fbAsyncInit` → `FB.init` → `setSdkReady(true)` → luego script al DOM. Botón `disabled={!sdkReady || loading}`; guard en `handleConectar`. Eliminados polling, `setTimeout` y `ensureFacebookLoginReady`. Versión diagnóstico `sdk-fbasyncinit-1`.
+- `page.tsx` sin cambios (solo props server-side).
+
 ## 2026-05-29 (Embedded Signup Jefe 1)
 
 - `app/conectar-whatsapp/page.tsx` + `ConectarWhatsAppClient.tsx`: FB SDK, `FB.login` con `featureType: whatsapp_business_app_onboarding`, listener `WA_EMBEDDED_SIGNUP`, POST al backend con `setup_token` en header.
