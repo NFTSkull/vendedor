@@ -53,12 +53,14 @@ export const MSG_MONTO_Y_HORARIO =
   "¿En qué día y horario te podemos contactar para darte más detalles?";
 
 export const MSG_FINAL =
-  "Gracias. Un asesor se pondrá en contacto contigo en el horario que nos indicaste.\n\n" +
-  "También puedes comunicarte directamente a este número:\n\n" +
-  "8140100246";
+  "Gracias. Un asesor se pondrá en contacto contigo en el horario que nos indicaste.";
 
 const MSG_NSS_INVALIDO =
   "Necesito un número de seguro social (IMSS) de 11 dígitos. Intenta de nuevo.\n\n" +
+  MSG_SOLICITUD_DATOS;
+
+const MSG_REINTENTO_PRECIFICACION =
+  "Por favor, comparte nuevamente tu número de seguro social (NSS) de 11 dígitos para continuar con la consulta.\n\n" +
   MSG_SOLICITUD_DATOS;
 
 type RespuestaScraper = {
@@ -391,13 +393,9 @@ export async function ejecutarPasoCore(args: {
           );
         }
 
-        return exacto(
-          "Tuvimos un problema consultando tu información. ¿Puedes intentarlo de nuevo en unos minutos?",
-        );
+        return exacto(MSG_REINTENTO_PRECIFICACION);
       } catch {
-        return exacto(
-          "Tuvimos un problema consultando tu información. ¿Puedes intentarlo de nuevo en unos minutos?",
-        );
+        return exacto(MSG_REINTENTO_PRECIFICACION);
       }
     }
     case "esperando_horario": {

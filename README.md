@@ -19,6 +19,20 @@ Copiar `.env.example` a `.env.local` en local; en **Vercel** definir las mismas 
 | `WHATSAPP_ACCESS_TOKEN` | Bearer token para enviar mensajes (Graph) |
 | `WHATSAPP_PHONE_NUMBER_ID` | ID del número en Graph |
 | `WHATSAPP_GRAPH_API_VERSION` | Opcional; por defecto `lib/whatsappCloud.ts` usa `v19.0` |
+| `WHATSAPP_DEFAULT_OWNER` | Owner lógico del número por defecto (fallback env); default `bot_principal` |
+| `WHATSAPP_MULTI_NUMBER_ENABLED` | Documentado para fase posterior; **debe quedar `false`** hasta integrar webhook |
+
+### Conectar Jefe 1 (Embedded Signup v3)
+
+- Página: `/conectar-whatsapp?setup_token=<WHATSAPP_SETUP_TOKEN>` (el token se valida en servidor; no va en el bundle).
+- API: `POST /api/meta/embedded-signup` con header `x-whatsapp-setup-token` y body `{ code, sessionInfo? }`.
+- Requiere dominio en **Allowed domains** y **Valid OAuth redirect URIs** de la app Meta.
+- **No modifica** el webhook ni el número actual en producción.
+
+### Multi-número (preparación)
+
+- SQL: `supabase/sql/whatsapp_accounts.sql` — ejecutar en Supabase SQL Editor.
+- Resolver: `lib/whatsappAccountResolver.ts` — con tabla vacía, el bot en producción sigue usando solo `WHATSAPP_PHONE_NUMBER_ID` y `WHATSAPP_ACCESS_TOKEN` (el webhook **no** usa el resolver todavía).
 
 ## Desarrollo
 

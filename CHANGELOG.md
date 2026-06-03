@@ -4,6 +4,10 @@
 
 ### Cambio actual
 
+- **Embedded Signup v3 (Jefe 1):** página `/conectar-whatsapp` (Facebook SDK + `whatsapp_business_app_onboarding`), endpoint `POST /api/meta/embedded-signup` (intercambio de code, upsert en `whatsapp_accounts` con `owner: jefe_1`, `mode: coexistence`). Protección con `WHATSAPP_SETUP_TOKEN`. Webhook y bot sin cambios.
+- **Preparación multi-número WhatsApp (sin cambio de runtime):** SQL `supabase/sql/whatsapp_accounts.sql`, resolver `lib/whatsappAccountResolver.ts` con fallback a `WHATSAPP_*` env, y tests. No modifica webhook ni flujo del bot; Jefe 1 / Embedded Signup / coexistence quedan para fases posteriores.
+- **Copy al fallar precalificación en bot:** si la consulta al scraper no completa la validación, el bot pide reingresar el NSS en lugar de mostrar un mensaje de error técnico; el flujo exitoso y el rechazo por no calificar no cambian.
+- **Copy de cierre del bot:** `MSG_FINAL` ya no incluye la invitación a llamar al 8140100246; el flujo termina solo con que un asesor contactará en el horario indicado.
 - **Web Push en CRM:** agregado `app/manifest.json` para PWA y `public/sw.js` para recibir push/click a rutas del CRM.
 - **Suscripción de asesores a notificaciones:** nuevo endpoint `POST /api/crm/push/subscribe` (auth + Zod) y botón `Activar notificaciones` en `/crm/leads` para pedir permiso, registrar Service Worker y guardar suscripción.
 - **Notificación al crear lead nuevo:** en `POST /api/webhook`, cuando se detecta creación de lead `nuevo`, se envía push con título **Nuevo lead Mejoravit**, cuerpo con teléfono/horario y click a `/crm/leads/{id}`.

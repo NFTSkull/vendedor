@@ -1,7 +1,26 @@
 # DEVLOG
 
+## 2026-05-29 (Embedded Signup Jefe 1)
+
+- `app/conectar-whatsapp/page.tsx` + `ConectarWhatsAppClient.tsx`: FB SDK, `FB.login` con `featureType: whatsapp_business_app_onboarding`, listener `WA_EMBEDDED_SIGNUP`, POST al backend con `setup_token` en header.
+- `app/api/meta/embedded-signup/route.ts` + `lib/metaEmbeddedSignup.ts`: intercambio OAuth Graph, persistencia `whatsapp_accounts` (`jefe_1`, `coexistence`), respuesta pública sin `access_token`.
+- Seguridad: `WHATSAPP_SETUP_TOKEN` en query (gate UI) y header `x-whatsapp-setup-token` (API).
+- **Sin cambios** en webhook, `botSteps`, env `WHATSAPP_PHONE_NUMBER_ID` / `WHATSAPP_ACCESS_TOKEN` de producción.
+
+## 2026-05-29 (multi-número, solo preparación)
+
+- `supabase/sql/whatsapp_accounts.sql`: tabla `whatsapp_accounts` (owner, mode, phone_number_id único, token, default activo único). Ejecutar manualmente en Supabase; seed opcional comentado.
+- `lib/whatsappAccountResolver.ts`: `resolveWhatsAppAccount(phoneNumberId?)` — busca fila activa por `phone_number_id` o fallback idéntico a env actual (`bot_principal`, `cloud_only`). No usado aún por webhook.
+- `.env.example`: documentadas `WHATSAPP_MULTI_NUMBER_ENABLED`, `WHATSAPP_DEFAULT_OWNER` y variables Meta Embedded Signup (fase QR posterior).
+- **Explícito:** esta fase NO conecta Jefe 1, NO toca `app/api/webhook/route.ts`, NO activa multi-número en producción.
+
+## 2026-05-29
+
+- `lib/botStepsCore.ts`: nuevo `MSG_REINTENTO_PRECIFICACION` para fallos técnicos o respuestas incompletas del scraper; pide reingresar NSS sin tono de error. Rechazo explícito (`califica: false`) y flujo exitoso sin cambios.
+
 ## 2026-05-28
 
+- `lib/botStepsCore.ts`: se eliminó del `MSG_FINAL` el bloque «También puedes comunicarte directamente a este número: 8140100246»; el cierre queda únicamente con el aviso de contacto por asesor.
 - `app/manifest.json`: configuración base PWA para CRM (`start_url`, `display`, `theme_color` y `background_color`).
 - `public/sw.js`: Service Worker para `push` y `notificationclick` con navegación a la URL del payload.
 - `app/api/crm/push/subscribe/route.ts`: endpoint protegido para registrar/actualizar suscripciones push en `crm_push_subscriptions`.

@@ -214,7 +214,8 @@ describe("botSteps memoria Map", () => {
       expect(reply).toBeTruthy();
     }
 
-    expect(reply).toContain("8140100246");
+    expect(reply).toContain("Un asesor se pondrá en contacto contigo");
+    expect(reply).not.toContain("8140100246");
     expect(reply).not.toContain("8114118767");
 
     expect(logSpy).toHaveBeenCalledWith("[lead confirmado]", {
@@ -253,6 +254,66 @@ describe("botSteps memoria Map", () => {
     expect(reply).toContain("$72,000");
     expect(reply).toContain("$105,882");
     expect(reply).toContain("día y horario");
+  });
+
+  it("pide reingresar NSS cuando la precalificación no devuelve datos válidos", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/precalificar")) {
+          return new Response(JSON.stringify({ success: true, datos: {} }), {
+            status: 200,
+          });
+        }
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    const p = "5255555555555";
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
+
+    const reply = await procesarYEvolucionar({
+      phone: p,
+      textoUsuario: "12345678901",
+    });
+
+    expect(reply).toContain("comparte nuevamente tu número de seguro social");
+    expect(reply).not.toContain("problema");
+    expect(reply).not.toContain("error");
+    expect(conversationMemory.get(p)?.state).toBe("esperando_datos");
+  });
+
+  it("pide reingresar NSS cuando falla la consulta al scraper", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/precalificar")) {
+          throw new Error("timeout");
+        }
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    const p = "5266666666666";
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
+
+    const reply = await procesarYEvolucionar({
+      phone: p,
+      textoUsuario: "12345678901",
+    });
+
+    expect(reply).toContain("comparte nuevamente tu número de seguro social");
+    expect(reply).not.toContain("problema");
+    expect(reply).not.toContain("error");
+    expect(conversationMemory.get(p)?.state).toBe("esperando_datos");
   });
 
   it("rechaza sin relación laboral vigente", async () => {
