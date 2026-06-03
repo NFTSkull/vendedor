@@ -36,6 +36,140 @@ const FB_SDK_SCRIPT_ID = "facebook-jssdk";
 const FB_SDK_SRC = "https://connect.facebook.net/en_US/sdk.js";
 const SDK_INIT_TIMEOUT_MS = 15000;
 
+let sdkLoadPromise: Promise<void> | null = null;
+let sdkLoadAppId: string | null = null;
+let fbSdkInitCompletedGlobal = false;
+
+function devLog(message: string): void {
+  if (process.env.NODE_ENV === "development") {
+    console.log(message);
+  }
+}
+
+function runFbInit(appId: string): void {
+  if (!window.FB) {
+    throw new Error("window.FB no disponible");
+  }
+  window.FB.init({
+    appId,
+    cookie: true,
+    xfbml: false,
+    version: FB_SDK_VERSION,
+  });
+}
+
+/**
+ * Carga el script del SDK una sola vez y resuelve solo después de FB.init exitoso.
+ */
+function loadFacebookSdkOnce(appId: string): Promise<void> {
+  const trimmedAppId = appId?.trim();
+  if (!trimmedAppId) {
+    return Promise.reject(new Error("Falta NEXT_PUBLIC_META_APP_ID"));
+  }
+
+  if (fbSdkInitCompletedGlobal && window.FB) {
+    return Promise.resolve();
+  }
+
+  if (sdkLoadPromise && sdkLoadAppId === trimmedAppId) {
+    return sdkLoadPromise;
+  }
+
+  sdkLoadAppId = trimmedAppId;
+
+  sdkLoadPromise = new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+    const cleanup = () => {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    };
+
+    const finishResolve = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      clearTimeout(timeoutTimer);
+      fbSdkInitCompletedGlobal = true;
+      devLog("Facebook SDK initialized");
+      resolve();
+    };
+
+    const finishReject = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      clearTimeout(timeoutTimer);
+      sdkLoadPromise = null;
+      fbSdkInitCompletedGlobal = false;
+      reject(error);
+    };
+
+    const attemptInit = (): boolean => {
+      if (!window.FB) return false;
+      try {
+        runFbInit(trimmedAppId);
+        finishResolve();
+        return true;
+      } catch {
+        finishReject(new Error("No se pudo inicializar Facebook SDK"));
+        return true;
+      }
+    };
+
+    const pollUntilFbReady = () => {
+      if (attemptInit()) return;
+      pollTimer = setInterval(() => {
+        attemptInit();
+      }, 50);
+    };
+
+    const timeoutTimer = setTimeout(() => {
+      finishReject(
+        new Error("Facebook SDK no terminó de inicializarse (tiempo de espera agotado)"),
+      );
+    }, SDK_INIT_TIMEOUT_MS);
+
+    window.fbAsyncInit = () => {
+      devLog("Facebook SDK fbAsyncInit fired");
+      if (!attemptInit()) {
+        pollUntilFbReady();
+      }
+    };
+
+    const existingScript = document.getElementById(FB_SDK_SCRIPT_ID);
+
+    if (existingScript) {
+      if (window.FB) {
+        attemptInit();
+      } else {
+        pollUntilFbReady();
+      }
+    } else {
+      const script = document.createElement("script");
+      script.id = FB_SDK_SCRIPT_ID;
+      script.async = true;
+      script.defer = true;
+      script.src = FB_SDK_SRC;
+      script.onload = () => {
+        devLog("Facebook SDK script loaded");
+        if (!settled) {
+          pollUntilFbReady();
+        }
+      };
+      script.onerror = () => {
+        finishReject(new Error("No se pudo cargar Facebook SDK"));
+      };
+      document.body.appendChild(script);
+    }
+  });
+
+  return sdkLoadPromise;
+}
+
 type Props = {
   authorized: boolean;
   setupToken: string;
@@ -56,9 +190,11 @@ export default function ConectarWhatsAppClient({
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const sessionInfoRef = useRef<Record<string, unknown> | null>(null);
-  const initDoneRef = useRef(false);
+  const fbInitCompletedRef = useRef(false);
 
-  const hasMetaConfig = Boolean(metaAppId?.trim() && configId?.trim());
+  const hasMetaAppId = Boolean(metaAppId?.trim());
+  const hasConfigId = Boolean(configId?.trim());
+  const hasMetaConfig = hasMetaAppId && hasConfigId;
 
   const onMessage = useCallback((event: MessageEvent) => {
     if (event.origin !== "https://www.facebook.com") return;
@@ -75,100 +211,43 @@ export default function ConectarWhatsAppClient({
     }
   }, []);
 
+  const markSdkReady = useCallback(() => {
+    fbInitCompletedRef.current = true;
+    setSdkLoaded(true);
+    setSdkInitialized(true);
+    setSdkError("");
+  }, []);
+
+  const markSdkFailed = useCallback((message: string) => {
+    fbInitCompletedRef.current = false;
+    setSdkInitialized(false);
+    setSdkError(message);
+  }, []);
+
   useEffect(() => {
-    if (!authorized || !metaAppId) return;
+    if (!authorized || !hasMetaConfig) return;
 
     let cancelled = false;
-    let pollTimer: ReturnType<typeof setInterval> | null = null;
-    let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const markInitialized = () => {
-      if (cancelled || initDoneRef.current) return true;
-      if (!window.FB) return false;
-
-      try {
-        window.FB.init({
-          appId: metaAppId,
-          cookie: true,
-          xfbml: false,
-          version: FB_SDK_VERSION,
-        });
-        initDoneRef.current = true;
-        setSdkLoaded(true);
-        setSdkInitialized(true);
-        setSdkError("");
-        return true;
-      } catch {
-        setSdkError("No se pudo inicializar Facebook SDK");
-        return false;
-      }
-    };
-
-    const waitForFbAndInit = () => {
-      if (markInitialized()) {
-        if (pollTimer) clearInterval(pollTimer);
-        if (timeoutTimer) clearTimeout(timeoutTimer);
-        return;
-      }
-
-      pollTimer = setInterval(() => {
-        if (cancelled) return;
-        if (markInitialized()) {
-          if (pollTimer) clearInterval(pollTimer);
-          if (timeoutTimer) clearTimeout(timeoutTimer);
-        }
-      }, 100);
-    };
 
     window.addEventListener("message", onMessage);
 
-    // fbAsyncInit debe existir ANTES de que el script del SDK se cargue/ejecute.
-    window.fbAsyncInit = () => {
-      if (cancelled) return;
-      setSdkLoaded(true);
-      markInitialized();
-    };
-
-    const existingScript = document.getElementById(FB_SDK_SCRIPT_ID);
-
-    if (existingScript) {
-      setSdkLoaded(true);
-      if (!markInitialized()) {
-        waitForFbAndInit();
-      }
-    } else {
-      const script = document.createElement("script");
-      script.id = FB_SDK_SCRIPT_ID;
-      script.async = true;
-      script.defer = true;
-      script.src = FB_SDK_SRC;
-      script.onload = () => {
+    void loadFacebookSdkOnce(metaAppId)
+      .then(() => {
         if (cancelled) return;
-        setSdkLoaded(true);
-        if (!initDoneRef.current) {
-          waitForFbAndInit();
-        }
-      };
-      script.onerror = () => {
+        markSdkReady();
+      })
+      .catch((err: unknown) => {
         if (cancelled) return;
-        setSdkError("No se pudo inicializar Facebook SDK");
-      };
-      document.body.appendChild(script);
-    }
-
-    timeoutTimer = setTimeout(() => {
-      if (cancelled || initDoneRef.current) return;
-      setSdkError("No se pudo inicializar Facebook SDK");
-      if (pollTimer) clearInterval(pollTimer);
-    }, SDK_INIT_TIMEOUT_MS);
+        const message =
+          err instanceof Error ? err.message : "No se pudo inicializar Facebook SDK";
+        markSdkFailed(message);
+      });
 
     return () => {
       cancelled = true;
       window.removeEventListener("message", onMessage);
-      if (pollTimer) clearInterval(pollTimer);
-      if (timeoutTimer) clearTimeout(timeoutTimer);
     };
-  }, [authorized, metaAppId, onMessage]);
+  }, [authorized, hasMetaConfig, metaAppId, onMessage, markSdkReady, markSdkFailed]);
 
   async function enviarOnboardingAlServidor(code: string) {
     const res = await fetch("/api/meta/embedded-signup", {
@@ -199,73 +278,108 @@ export default function ConectarWhatsAppClient({
     );
   }
 
-  function handleConnect() {
+  async function handleConnect() {
     setErrorMsg("");
     setSuccessMsg("");
 
-    if (!hasMetaConfig) {
-      setErrorMsg("Falta configuración de Meta en el servidor.");
+    if (!hasMetaAppId) {
+      setErrorMsg("Falta NEXT_PUBLIC_META_APP_ID en el entorno del servidor.");
       return;
     }
-
-    if (!window.FB || !sdkInitialized) {
-      setErrorMsg(
-        "Facebook SDK aún no está listo. Espera unos segundos e intenta de nuevo.",
-      );
+    if (!hasConfigId) {
+      setErrorMsg("Falta NEXT_PUBLIC_META_EMBEDDED_SIGNUP_CONFIG_ID en el entorno del servidor.");
       return;
     }
 
     setIsSubmitting(true);
-    sessionInfoRef.current = null;
 
-    window.FB.login(
-      (response) => {
-        void (async () => {
-          try {
-            const code = response.authResponse?.code;
-            if (!code) {
+    try {
+      await loadFacebookSdkOnce(metaAppId);
+      fbInitCompletedRef.current = fbSdkInitCompletedGlobal;
+
+      if (!window.FB || !fbInitCompletedRef.current) {
+        setErrorMsg("Facebook SDK no terminó de inicializarse.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (!fbSdkInitCompletedGlobal) {
+        try {
+          runFbInit(metaAppId);
+          fbSdkInitCompletedGlobal = true;
+          fbInitCompletedRef.current = true;
+        } catch {
+          setErrorMsg("Facebook SDK no terminó de inicializarse.");
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      devLog("Calling FB.login");
+      sessionInfoRef.current = null;
+
+      window.FB.login(
+        (response) => {
+          void (async () => {
+            try {
+              const code = response.authResponse?.code;
+              if (!code) {
+                setErrorMsg(
+                  "No se recibió código de Meta. Completa el flujo en WhatsApp Business App.",
+                );
+                return;
+              }
+              await enviarOnboardingAlServidor(code);
+            } catch (err) {
               setErrorMsg(
-                "No se recibió código de Meta. Completa el flujo en WhatsApp Business App.",
+                err instanceof Error ? err.message : "No se pudo completar la conexión.",
               );
-              return;
+            } finally {
+              setIsSubmitting(false);
             }
-            await enviarOnboardingAlServidor(code);
-          } catch (err) {
-            setErrorMsg(
-              err instanceof Error ? err.message : "No se pudo completar la conexión.",
-            );
-          } finally {
-            setIsSubmitting(false);
-          }
-        })();
-      },
-      {
-        config_id: configId,
-        response_type: "code",
-        override_default_response_type: true,
-        extras: {
-          setup: {},
-          featureType: "whatsapp_business_app_onboarding",
-          sessionInfoVersion: "3",
+          })();
         },
-      },
-    );
+        {
+          config_id: configId,
+          response_type: "code",
+          override_default_response_type: true,
+          extras: {
+            setup: {},
+            featureType: "whatsapp_business_app_onboarding",
+            sessionInfoVersion: "3",
+          },
+        },
+      );
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Facebook SDK no terminó de inicializarse.";
+      setErrorMsg(message);
+      markSdkFailed(message);
+      setIsSubmitting(false);
+    }
   }
 
-  const buttonDisabled =
-    !hasMetaConfig || !sdkInitialized || isSubmitting || Boolean(sdkError);
+  const canUseFbLogin =
+    hasMetaConfig &&
+    sdkInitialized &&
+    fbInitCompletedRef.current &&
+    fbSdkInitCompletedGlobal &&
+    Boolean(window.FB) &&
+    !sdkError;
+
+  const buttonDisabled = !canUseFbLogin || isSubmitting;
 
   function buttonLabel(): string {
     if (isSubmitting) return "Conectando...";
     if (sdkError) return "SDK no disponible";
-    if (!sdkInitialized) return "Cargando Facebook SDK...";
+    if (!sdkInitialized || !fbInitCompletedRef.current) return "Cargando Facebook SDK...";
     return "Conectar WhatsApp Business App";
   }
 
   function sdkStatusMessage(): string | null {
     if (sdkError) return sdkError;
-    if (sdkInitialized) return "SDK listo";
-    if (sdkLoaded || authorized) return "Cargando Facebook SDK...";
+    if (sdkInitialized && fbInitCompletedRef.current && window.FB) return "SDK listo";
+    if (sdkLoaded || hasMetaConfig) return "Cargando Facebook SDK...";
     return null;
   }
 
@@ -286,14 +400,24 @@ export default function ConectarWhatsAppClient({
     );
   }
 
-  if (!metaAppId || !configId) {
+  if (!hasMetaAppId || !hasConfigId) {
     return (
       <main className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
         <section className="max-w-md w-full rounded-2xl border border-amber-200 bg-white p-8 shadow-sm">
           <h1 className="text-xl font-semibold text-slate-900">Configuración incompleta</h1>
           <p className="mt-3 text-sm text-slate-600">
-            Define <code>NEXT_PUBLIC_META_APP_ID</code> y{" "}
-            <code>NEXT_PUBLIC_META_EMBEDDED_SIGNUP_CONFIG_ID</code> en el entorno del servidor.
+            {!hasMetaAppId ? (
+              <>
+                Falta <code>NEXT_PUBLIC_META_APP_ID</code> en Vercel o <code>.env.local</code>.
+              </>
+            ) : null}
+            {!hasMetaAppId && !hasConfigId ? <br /> : null}
+            {!hasConfigId ? (
+              <>
+                Falta <code>NEXT_PUBLIC_META_EMBEDDED_SIGNUP_CONFIG_ID</code> en Vercel o{" "}
+                <code>.env.local</code>.
+              </>
+            ) : null}
           </p>
         </section>
       </main>
@@ -330,7 +454,7 @@ export default function ConectarWhatsAppClient({
 
         <button
           type="button"
-          onClick={handleConnect}
+          onClick={() => void handleConnect()}
           disabled={buttonDisabled}
           className="mt-6 w-full rounded-xl bg-[#1877F2] px-4 py-3 text-white font-medium hover:bg-[#166FE5] disabled:opacity-50 disabled:cursor-not-allowed"
         >
