@@ -70,6 +70,27 @@ function resumenPrecalificacionLead(lead: Lead): {
   };
 }
 
+function generarMensajeWhatsApp(lead: Lead): string {
+  const fecha = new Date(lead.created_at).toLocaleDateString("es-MX");
+  const montoMin = normalizarNumero(lead.monto_aprobado_min ?? undefined);
+  const montoMax = normalizarNumero(lead.monto_aprobado_max ?? undefined);
+  const rango =
+    montoMin > 0 && montoMax > 0
+      ? `${formatearMoneda(montoMin)} – ${formatearMoneda(montoMax)}`
+      : null;
+
+  return [
+    "🏠 *Lead Mejoravit*",
+    `📱 Teléfono: ${lead.whatsapp_phone}`,
+    lead.nss ? `🔢 NSS: ${lead.nss}` : null,
+    lead.horario ? `🕐 Horario: ${lead.horario}` : null,
+    rango ? `💰 Monto aprobado: ${rango}` : null,
+    `📅 Fecha: ${fecha}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -434,6 +455,16 @@ export default function CrmLeadsPage() {
                           >
                             Chat
                           </Link>
+                          {esMejoravit ? (
+                            <a
+                              href={`https://wa.me/?text=${encodeURIComponent(generarMensajeWhatsApp(lead))}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="rounded-lg bg-green-600 px-3 py-1.5 text-xs text-white hover:bg-green-700"
+                            >
+                              Enviar
+                            </a>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -509,6 +540,16 @@ export default function CrmLeadsPage() {
                     >
                       Chat
                     </Link>
+                    {esMejoravit ? (
+                      <a
+                        href={`https://wa.me/?text=${encodeURIComponent(generarMensajeWhatsApp(lead))}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-block rounded-lg bg-green-600 px-3 py-1.5 text-xs text-white hover:bg-green-700"
+                      >
+                        Enviar
+                      </a>
+                    ) : null}
                   </div>
                 </article>
                   );
