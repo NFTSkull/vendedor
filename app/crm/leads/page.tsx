@@ -16,6 +16,18 @@ import {
 
 type LeadEstado = "nuevo" | "contactado" | "no_interesado";
 
+const TABS = [
+  { id: "mejoravit", label: "Mejoravit" },
+  { id: "paneles", label: "Paneles" },
+  { id: "generadores", label: "Generadores" },
+] as const;
+
+const TITULOS_TAB: Record<string, string> = {
+  mejoravit: "Leads Mejoravit",
+  paneles: "Leads Paneles Solares",
+  generadores: "Leads Generadores",
+};
+
 type Lead = {
   id: string;
   whatsapp_phone: string;
@@ -75,6 +87,7 @@ export default function CrmLeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
+  const [tabActiva, setTabActiva] = useState<string>("mejoravit");
 
   const [modalAbierto, setModalAbierto] = useState(false);
   const [nssInput, setNssInput] = useState("");
@@ -95,6 +108,7 @@ export default function CrmLeadsPage() {
   const saldoSubcuenta = normalizarNumero(resultado?.datos?.saldoSubcuenta);
   const rangoAprobado =
     saldoSubcuenta > 0 ? calcularRangoAprobado(saldoSubcuenta) : null;
+  const esMejoravit = tabActiva === "mejoravit";
 
   async function cargarLeads() {
     const token = localStorage.getItem("crm_token");
@@ -107,7 +121,7 @@ export default function CrmLeadsPage() {
     setErrorMsg("");
 
     try {
-      const res = await fetch("/api/crm/leads", {
+      const res = await fetch(`/api/crm/leads?producto=${tabActiva}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -260,14 +274,16 @@ export default function CrmLeadsPage() {
   useEffect(() => {
     void cargarLeads();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [tabActiva]);
 
   return (
     <main className="min-h-screen p-4 md:p-6">
       <div className="max-w-6xl mx-auto">
         <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-5">
           <div>
-            <h1 className="text-2xl font-semibold">Leads Mejoravit</h1>
+            <h1 className="text-2xl font-semibold">
+              {TITULOS_TAB[tabActiva] ?? "Leads"}
+            </h1>
             <p className="text-sm text-slate-600">
               Nuevos: <span className="font-semibold">{nuevosCount}</span>
             </p>
@@ -282,13 +298,15 @@ export default function CrmLeadsPage() {
             >
               {activandoPush ? "Activando..." : "Activar notificaciones"}
             </button>
-            <button
-              type="button"
-              onClick={abrirModalPrecalificar}
-              className="self-start md:self-auto rounded-xl bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700"
-            >
-              Precalificar
-            </button>
+            {esMejoravit ? (
+              <button
+                type="button"
+                onClick={abrirModalPrecalificar}
+                className="self-start md:self-auto rounded-xl bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700"
+              >
+                Precalificar
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={cerrarSesion}
@@ -298,6 +316,24 @@ export default function CrmLeadsPage() {
             </button>
           </div>
         </header>
+
+        <nav className="flex gap-2 mb-5">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setTabActiva(tab.id)}
+              className={
+                tabActiva === tab.id
+                  ? "rounded-xl bg-blue-600 text-white px-4 py-2 text-sm font-medium"
+                  : "rounded-xl border border-slate-300 text-slate-700 px-4 py-2 text-sm hover:bg-slate-50"
+              }
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+
         {pushMsg ? (
           <p className="mb-3 text-sm text-slate-600">{pushMsg}</p>
         ) : null}
@@ -317,9 +353,15 @@ export default function CrmLeadsPage() {
           </section>
         ) : leads.length === 0 ? (
           <section className="rounded-xl border border-slate-200 bg-white p-6 text-slate-600">
-            No hay leads registrados todavía. Usa{" "}
-            <span className="font-medium">Precalificar</span> para consultar un
-            NSS en Infonavit.
+            {esMejoravit ? (
+              <>
+                No hay leads registrados todavía. Usa{" "}
+                <span className="font-medium">Precalificar</span> para consultar un
+                NSS en Infonavit.
+              </>
+            ) : (
+              <>No hay leads registrados todavía en esta categoría.</>
+            )}
           </section>
         ) : (
           <>
@@ -328,10 +370,12 @@ export default function CrmLeadsPage() {
                 <thead className="bg-slate-100 text-slate-700">
                   <tr>
                     <th className="text-left p-3">Teléfono</th>
-                    <th className="text-left p-3">NSS</th>
+                    {esMejoravit ? <th className="text-left p-3">NSS</th> : null}
                     <th className="text-left p-3">Horario</th>
                     <th className="text-left p-3">Estado</th>
-                    <th className="text-left p-3">Precalificación</th>
+                    {esMejoravit ? (
+                      <th className="text-left p-3">Precalificación</th>
+                    ) : null}
                     <th className="text-left p-3">Fecha</th>
                     <th className="text-left p-3">Acciones</th>
                   </tr>
@@ -340,7 +384,9 @@ export default function CrmLeadsPage() {
                   {leads.map((lead) => (
                     <tr key={lead.id} className="border-t border-slate-100 align-top">
                       <td className="p-3">{lead.whatsapp_phone}</td>
-                      <td className="p-3">{lead.nss ?? "—"}</td>
+                      {esMejoravit ? (
+                        <td className="p-3">{lead.nss ?? "—"}</td>
+                      ) : null}
                       <td className="p-3">{lead.horario}</td>
                       <td className="p-3">
                         <span
@@ -351,27 +397,29 @@ export default function CrmLeadsPage() {
                           {lead.estado}
                         </span>
                       </td>
-                      <td className="p-3 text-xs text-slate-700">
-                        {(() => {
-                          const resumen = resumenPrecalificacionLead(lead);
-                          return (
-                            <div className="space-y-1">
-                              <p>
-                                <span className="font-medium">Saldo subcuenta:</span>{" "}
-                                {resumen.saldoSubcuenta}
-                              </p>
-                              <p>
-                                <span className="font-medium">Después de descuento (×0.9):</span>{" "}
-                                {resumen.montoBase}
-                              </p>
-                              <p>
-                                <span className="font-medium">Rango aprobado:</span>{" "}
-                                {resumen.rangoAprobado}
-                              </p>
-                            </div>
-                          );
-                        })()}
-                      </td>
+                      {esMejoravit ? (
+                        <td className="p-3 text-xs text-slate-700">
+                          {(() => {
+                            const resumen = resumenPrecalificacionLead(lead);
+                            return (
+                              <div className="space-y-1">
+                                <p>
+                                  <span className="font-medium">Saldo subcuenta:</span>{" "}
+                                  {resumen.saldoSubcuenta}
+                                </p>
+                                <p>
+                                  <span className="font-medium">Después de descuento (×0.9):</span>{" "}
+                                  {resumen.montoBase}
+                                </p>
+                                <p>
+                                  <span className="font-medium">Rango aprobado:</span>{" "}
+                                  {resumen.rangoAprobado}
+                                </p>
+                              </div>
+                            );
+                          })()}
+                        </td>
+                      ) : null}
                       <td className="p-3">
                         {new Date(lead.created_at).toLocaleString("es-MX")}
                       </td>
@@ -400,7 +448,9 @@ export default function CrmLeadsPage() {
             <section className="md:hidden grid gap-3">
               {leads.map((lead) => (
                 (() => {
-                  const resumen = resumenPrecalificacionLead(lead);
+                  const resumen = esMejoravit
+                    ? resumenPrecalificacionLead(lead)
+                    : null;
                   return (
                 <article
                   key={lead.id}
@@ -418,10 +468,12 @@ export default function CrmLeadsPage() {
                   </div>
 
                   <div className="mt-2 text-sm text-slate-700 space-y-1">
-                    <p>
-                      <span className="font-medium">NSS:</span>{" "}
-                      {lead.nss ?? "—"}
-                    </p>
+                    {esMejoravit ? (
+                      <p>
+                        <span className="font-medium">NSS:</span>{" "}
+                        {lead.nss ?? "—"}
+                      </p>
+                    ) : null}
                     <p>
                       <span className="font-medium">Horario:</span> {lead.horario}
                     </p>
@@ -429,18 +481,22 @@ export default function CrmLeadsPage() {
                       <span className="font-medium">Fecha:</span>{" "}
                       {new Date(lead.created_at).toLocaleString("es-MX")}
                     </p>
-                    <p>
-                      <span className="font-medium">Saldo subcuenta:</span>{" "}
-                      {resumen.saldoSubcuenta}
-                    </p>
-                    <p>
-                      <span className="font-medium">Después de descuento (×0.9):</span>{" "}
-                      {resumen.montoBase}
-                    </p>
-                    <p>
-                      <span className="font-medium">Rango aprobado:</span>{" "}
-                      {resumen.rangoAprobado}
-                    </p>
+                    {resumen ? (
+                      <>
+                        <p>
+                          <span className="font-medium">Saldo subcuenta:</span>{" "}
+                          {resumen.saldoSubcuenta}
+                        </p>
+                        <p>
+                          <span className="font-medium">Después de descuento (×0.9):</span>{" "}
+                          {resumen.montoBase}
+                        </p>
+                        <p>
+                          <span className="font-medium">Rango aprobado:</span>{" "}
+                          {resumen.rangoAprobado}
+                        </p>
+                      </>
+                    ) : null}
                   </div>
 
                   <div className="mt-3 flex items-center gap-2">

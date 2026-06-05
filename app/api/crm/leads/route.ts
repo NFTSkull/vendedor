@@ -8,11 +8,20 @@ export async function GET(req: Request): Promise<Response> {
       return Response.json({ error: "No autorizado" }, { status: 401 });
     }
 
+    const { searchParams } = new URL(req.url);
+    const producto = searchParams.get("producto");
+
     const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
+    let query = supabase
       .from("leads")
       .select("*")
       .order("created_at", { ascending: false });
+
+    if (producto) {
+      query = query.eq("producto", producto);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error("[CRM leads GET] Error:", error);
