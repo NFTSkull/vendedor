@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
-  calcularRangoAprobado,
   formatearMoneda,
   motivoRechazoLegible,
   normalizarNumero,
@@ -106,8 +105,6 @@ export default function CrmLeadsPage() {
   );
 
   const saldoSubcuenta = normalizarNumero(resultado?.datos?.saldoSubcuenta);
-  const rangoAprobado =
-    saldoSubcuenta > 0 ? calcularRangoAprobado(saldoSubcuenta) : null;
   const esMejoravit = tabActiva === "mejoravit";
 
   async function cargarLeads() {
@@ -615,11 +612,9 @@ export default function CrmLeadsPage() {
                         {resultado.nombre ?? "Sin dato"}
                       </p>
                       <p>
-                        <span className="font-medium">Monto aprobado:</span>{" "}
-                        {rangoAprobado
-                          ? `${formatearMoneda(rangoAprobado.min)} a ${formatearMoneda(
-                              rangoAprobado.max,
-                            )}`
+                        <span className="font-medium">Saldo subcuenta de vivienda:</span>{" "}
+                        {saldoSubcuenta > 0
+                          ? formatearMoneda(saldoSubcuenta)
                           : "Sin dato"}
                       </p>
                       <p>

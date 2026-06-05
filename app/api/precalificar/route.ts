@@ -91,9 +91,14 @@ export async function POST(request: Request) {
     };
 
     if (resultado.califica) {
+      const saldoSubcuenta = normalizarNumero(resultado.datos?.saldoSubcuenta);
+      const montoExacto = Math.floor(saldoSubcuenta);
       updateData.nombre_infonavit = resultado.nombre;
       updateData.monto_credito = resultado.datos?.montoCredito;
       updateData.saldo_subcuenta = resultado.datos?.saldoSubcuenta;
+      updateData.monto_base = montoExacto;
+      updateData.monto_aprobado_min = montoExacto;
+      updateData.monto_aprobado_max = montoExacto;
       updateData.capacidad_compra = resultado.datos?.capacidadCompra;
       updateData.pago_mensual = resultado.datos?.pagoMensual;
     }
@@ -141,19 +146,16 @@ function buildMensajeAprobado(resultado: ResultadoPrecalificacion) {
     .trim();
 
   const saldoSubcuenta = normalizarNumero(datos?.saldoSubcuenta);
-  const montoPrestable = saldoSubcuenta * 0.9;
-  const rangoMinimo = Math.floor(montoPrestable * 0.8);
-  const rangoMaximo = Math.floor(montoPrestable * 0.85);
-  const rangoTexto =
+  const montoTexto =
     saldoSubcuenta > 0
-      ? `entre *${formatearMoneda(rangoMinimo)}* y *${formatearMoneda(rangoMaximo)}*`
+      ? `*${formatearMoneda(Math.floor(saldoSubcuenta))}*`
       : "en revisión con nuestro equipo";
 
   return `✅ *¡Buenas noticias, ${nombreFormato}!*
 
 ¡Tu precalificación con Infonavit está lista! 🏠
 
-🎉 *Tu monto aprobado para mejoras con Mejoravit es ${rangoTexto}.*
+🎉 *Tu saldo de subcuenta de vivienda es ${montoTexto}.*
 
 Un asesor se comunicará contigo en breve. 😊`;
 }

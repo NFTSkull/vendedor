@@ -73,19 +73,18 @@ type RespuestaScraper = {
 };
 
 type DatosPrecalificacionAprobada = {
-  saldoSubcuentaRaw?: number | string;
-  montoCreditoRaw: number | string;
-  montoCredito: number;
+  saldoSubcuentaRaw: number | string;
+  saldoSubcuenta: number;
+  montoCreditoRaw?: number | string;
 };
 
-function extraerMontoCredito(resultado: RespuestaScraper): number {
-  const raw = resultado.datos?.montoCredito ?? resultado.montoCredito;
-  return parseNumero(raw);
+function extraerSaldoSubcuenta(resultado: RespuestaScraper): number {
+  return parseNumero(resultado.datos?.saldoSubcuenta);
 }
 
-function mensajeMontoAutorizadoYHorario(montoCredito: number): string {
+function mensajeMontoAutorizadoYHorario(saldoSubcuenta: number): string {
   return (
-    `Tu monto autorizado es:\n${formatMoneda(montoCredito)} 🏠\n` +
+    `Tu monto autorizado es:\n${formatMoneda(saldoSubcuenta)} 🏠\n` +
     "¿En qué día y horario te podemos contactar?"
   );
 }
@@ -216,12 +215,13 @@ async function guardarLead(
     estado: "nuevo",
   };
   if (datosPrecalificacion) {
-    if (datosPrecalificacion.saldoSubcuentaRaw !== undefined) {
-      leadPayload.saldo_subcuenta = datosPrecalificacion.saldoSubcuentaRaw;
+    leadPayload.saldo_subcuenta = datosPrecalificacion.saldoSubcuentaRaw;
+    leadPayload.monto_base = datosPrecalificacion.saldoSubcuenta;
+    leadPayload.monto_aprobado_min = datosPrecalificacion.saldoSubcuenta;
+    leadPayload.monto_aprobado_max = datosPrecalificacion.saldoSubcuenta;
+    if (datosPrecalificacion.montoCreditoRaw !== undefined) {
+      leadPayload.monto_credito = datosPrecalificacion.montoCreditoRaw;
     }
-    leadPayload.monto_credito = datosPrecalificacion.montoCreditoRaw;
-    leadPayload.monto_aprobado_min = datosPrecalificacion.montoCredito;
-    leadPayload.monto_aprobado_max = datosPrecalificacion.montoCredito;
   }
 
   const conv = await getConversation(phone);
@@ -371,16 +371,16 @@ export async function ejecutarPasoCore(args: {
       });
       try {
         const resultado = await consultarPrecalificacionScraper(nss);
-        const montoCredito = extraerMontoCredito(resultado);
+        const saldoSubcuenta = extraerSaldoSubcuenta(resultado);
+        const saldoSubcuentaRaw = resultado.datos?.saldoSubcuenta;
         const montoCreditoRaw =
           resultado.datos?.montoCredito ?? resultado.montoCredito;
-        const saldoSubcuentaRaw = resultado.datos?.saldoSubcuenta;
         const success = resultado.success === true || resultado.califica === true;
-        if (success && montoCredito > 0 && montoCreditoRaw !== undefined) {
+        if (success && saldoSubcuenta > 0 && saldoSubcuentaRaw !== undefined) {
           datosPrecalificacionPorTelefono.set(phone, {
             saldoSubcuentaRaw,
+            saldoSubcuenta,
             montoCreditoRaw,
-            montoCredito,
           });
           await actualizarLeadPorConversacion(phone, { nss });
           await setConversation(phone, {
@@ -388,7 +388,7 @@ export async function ejecutarPasoCore(args: {
             name: null,
             nss,
           });
-          return exacto(mensajeMontoAutorizadoYHorario(montoCredito));
+          return exacto(mensajeMontoAutorizadoYHorario(saldoSubcuenta));
         }
 
         if (resultado.success === false || resultado.califica === false) {

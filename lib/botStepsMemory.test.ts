@@ -231,9 +231,10 @@ describe("botSteps memoria Map", () => {
       horario: "Martes 10am",
       estado: "nuevo",
       saldo_subcuenta: 100000,
+      monto_base: 100000,
       monto_credito: 85000,
-      monto_aprobado_min: 85000,
-      monto_aprobado_max: 85000,
+      monto_aprobado_min: 100000,
+      monto_aprobado_max: 100000,
     });
 
     logSpy.mockRestore();
@@ -252,8 +253,7 @@ describe("botSteps memoria Map", () => {
     });
 
     expect(reply).toContain("Tu monto autorizado es:");
-    expect(reply).toContain("$85,000");
-    expect(reply).not.toContain("aproximadamente");
+    expect(reply).toContain("$100,000");
     expect(reply).not.toContain(" a ");
     expect(reply).toContain("día y horario");
   });
@@ -372,7 +372,7 @@ describe("botSteps memoria Map", () => {
     });
 
     expect(reply).toContain("Tu monto autorizado es:");
-    expect(reply).toContain("$85,000");
+    expect(reply).toContain("$100,000");
     expect(conversationMemory.get(p)?.nss).toBe("01234567890");
   });
 
