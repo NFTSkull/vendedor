@@ -101,7 +101,10 @@ describe("POST /api/webhook", () => {
     const res = await POST(req as never);
 
     expect(res.status).toBe(200);
-    expect(mocks.ensureLeadProvisional).toHaveBeenCalledWith("5215550000000");
+    expect(mocks.ensureLeadProvisional).toHaveBeenCalledWith("5215550000000", {
+      phoneNumberId: "phone-id",
+      primerMensaje: "Hola",
+    });
     expect(mocks.guardarMensaje).toHaveBeenCalledWith({
       leadId: "lead-1",
       direccion: "entrante",

@@ -1,8 +1,17 @@
 import { getConversation, setConversation } from "@/lib/conversationMemory";
+import { detectarProducto } from "@/lib/detectarProducto";
 import { buscarLeadPorTelefono } from "@/lib/messagesDb";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
-export async function ensureLeadProvisional(phone: string): Promise<string | null> {
+export type EnsureLeadProvisionalOptions = {
+  phoneNumberId?: string;
+  primerMensaje?: string;
+};
+
+export async function ensureLeadProvisional(
+  phone: string,
+  options?: EnsureLeadProvisionalOptions,
+): Promise<string | null> {
   const conv = await getConversation(phone);
   if (conv.lead_id) return conv.lead_id;
 
@@ -11,6 +20,13 @@ export async function ensureLeadProvisional(phone: string): Promise<string | nul
     await setConversation(phone, { state: conv.state, lead_id: existing.id });
     return existing.id;
   }
+
+  const phoneNumberId =
+    options?.phoneNumberId?.trim() ||
+    process.env.WHATSAPP_PHONE_NUMBER_ID?.trim() ||
+    "";
+  const primerMensaje = options?.primerMensaje ?? "";
+  const producto = detectarProducto({ phoneNumberId, primerMensaje });
 
   try {
     const supabase = getSupabaseAdmin();
@@ -21,11 +37,22 @@ export async function ensureLeadProvisional(phone: string): Promise<string | nul
         estado: "nuevo",
         nss: "",
         horario: "",
+        producto,
       })
       .select("id")
       .single();
 
     if (error || !data?.id) {
+      if (error) {
+        const existingAfterInsert = await buscarLeadPorTelefono(phone);
+        if (existingAfterInsert) {
+          await setConversation(phone, {
+            state: conv.state,
+            lead_id: existingAfterInsert.id,
+          });
+          return existingAfterInsert.id;
+        }
+      }
       console.error("[leadProvisional] Error creando lead provisional:", error);
       return null;
     }
@@ -34,6 +61,7 @@ export async function ensureLeadProvisional(phone: string): Promise<string | nul
     console.log("[leadProvisional] Lead provisional creado:", {
       phone,
       leadId: data.id,
+      producto,
     });
     return data.id;
   } catch (err) {

@@ -97,7 +97,10 @@ export async function POST(req: NextRequest): Promise<Response> {
     console.log("[WEBHOOK_DEBUG] from extraído (parseWhatsAppWebhook):", m.from);
 
     const leadAntes = await buscarLeadPorTelefono(m.from);
-    await ensureLeadProvisional(m.from);
+    await ensureLeadProvisional(m.from, {
+      phoneNumberId: resolvedPhoneNumberId,
+      primerMensaje: m.body,
+    });
     const conversacionLead = await getConversation(m.from);
 
     let leadChat: LeadRow | null = null;
