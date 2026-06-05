@@ -14,6 +14,8 @@ export type ConversationValue = {
   name: string | null;
   nss: string | null;
   lead_id: string | null;
+  producto?: string;
+  data?: Record<string, unknown>;
 };
 
 // Map local como caché para la misma request
@@ -26,7 +28,7 @@ export async function getConversation(
     const supabase = getSupabaseAdmin();
     const { data } = await supabase
       .from("conversations")
-      .select("state, nss, lead_id")
+      .select("state, nss, lead_id, producto, data")
       .eq("whatsapp_phone", phone)
       .maybeSingle();
 
@@ -37,6 +39,16 @@ export async function getConversation(
         nss: data.nss ?? null,
         lead_id: data.lead_id ?? null,
       };
+      if (data.producto != null) {
+        val.producto = data.producto;
+      }
+      if (
+        data.data != null &&
+        typeof data.data === "object" &&
+        !Array.isArray(data.data)
+      ) {
+        val.data = data.data as Record<string, unknown>;
+      }
       conversationMemory.set(phone, val);
       return val;
     }
@@ -66,16 +78,33 @@ export async function setConversation(
     nss: patch.nss !== undefined ? patch.nss : base.nss,
     lead_id: patch.lead_id !== undefined ? patch.lead_id : base.lead_id,
   };
+  if (patch.producto !== undefined) {
+    merged.producto = patch.producto;
+  } else if (base.producto !== undefined) {
+    merged.producto = base.producto;
+  }
+  if (patch.data !== undefined) {
+    merged.data = { ...(base.data ?? {}), ...patch.data };
+  } else if (base.data !== undefined) {
+    merged.data = base.data;
+  }
   conversationMemory.set(phone, merged);
   try {
     const supabase = getSupabaseAdmin();
-    await supabase.from("conversations").upsert({
+    const row: Record<string, unknown> = {
       whatsapp_phone: phone,
       state: merged.state,
       nss: merged.nss,
       lead_id: merged.lead_id,
       updated_at: new Date().toISOString(),
-    });
+    };
+    if (patch.producto !== undefined) {
+      row.producto = merged.producto;
+    }
+    if (patch.data !== undefined) {
+      row.data = merged.data ?? {};
+    }
+    await supabase.from("conversations").upsert(row);
   } catch (err) {
     console.error("[conversationMemory] Error escribiendo Supabase:", err);
   }
