@@ -149,6 +149,7 @@ describe("botSteps memoria Map", () => {
               success: true,
               datos: {
                 saldoSubcuenta: 100000,
+                montoCredito: 85000,
               },
             }),
             { status: 200 },
@@ -230,15 +231,15 @@ describe("botSteps memoria Map", () => {
       horario: "Martes 10am",
       estado: "nuevo",
       saldo_subcuenta: 100000,
-      monto_base: 90000,
-      monto_aprobado_min: 72000,
-      monto_aprobado_max: 105882,
+      monto_credito: 85000,
+      monto_aprobado_min: 85000,
+      monto_aprobado_max: 85000,
     });
 
     logSpy.mockRestore();
   });
 
-  it("consulta scraper y muestra rango dinámico antes de pedir horario", async () => {
+  it("consulta scraper y muestra monto exacto antes de pedir horario", async () => {
     const p = "5233333333333";
     await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
@@ -250,9 +251,10 @@ describe("botSteps memoria Map", () => {
       textoUsuario: "09876543210",
     });
 
-    expect(reply).toContain("Tu monto autorizado es aproximadamente de:");
-    expect(reply).toContain("$72,000");
-    expect(reply).toContain("$105,882");
+    expect(reply).toContain("Tu monto autorizado es:");
+    expect(reply).toContain("$85,000");
+    expect(reply).not.toContain("aproximadamente");
+    expect(reply).not.toContain(" a ");
     expect(reply).toContain("día y horario");
   });
 
@@ -369,7 +371,8 @@ describe("botSteps memoria Map", () => {
       textoUsuario: "01234567890",
     });
 
-    expect(reply).toContain("Tu monto autorizado es aproximadamente de:");
+    expect(reply).toContain("Tu monto autorizado es:");
+    expect(reply).toContain("$85,000");
     expect(conversationMemory.get(p)?.nss).toBe("01234567890");
   });
 

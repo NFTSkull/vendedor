@@ -1,5 +1,9 @@
 # DEVLOG
 
+## 2026-05-29 (bot monto exacto)
+
+- `lib/botStepsCore.ts`: mensaje post-NSS usa `montoCredito` del scraper (`Tu monto autorizado es: $X`); sin rango 80%–85%. Persistencia en lead: `monto_credito`, `monto_aprobado_min/max` = mismo valor.
+
 ## 2026-05-29 (webhook multi-número Fase D)
 
 - `lib/parseWhatsAppWebhook.ts`: `phoneNumberId` desde `metadata.phone_number_id`; `payloadDebeIgnorarPorEcos` para ecos sin mensajes entrantes.

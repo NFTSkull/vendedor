@@ -49,7 +49,6 @@ export const MSG_SOLICITUD_DATOS =
   "Compárteme tu Número de Seguro Social (NSS) para darte el monto autorizado.";
 
 export const MSG_MONTO_Y_HORARIO =
-  "Tu monto autorizado es aproximadamente de ___\n\n" +
   "¿En qué día y horario te podemos contactar para darte más detalles?";
 
 export const MSG_FINAL =
@@ -74,11 +73,22 @@ type RespuestaScraper = {
 };
 
 type DatosPrecalificacionAprobada = {
-  saldoSubcuentaRaw: number | string;
-  montoBase: number;
-  montoAprobadoMin: number;
-  montoAprobadoMax: number;
+  saldoSubcuentaRaw?: number | string;
+  montoCreditoRaw: number | string;
+  montoCredito: number;
 };
+
+function extraerMontoCredito(resultado: RespuestaScraper): number {
+  const raw = resultado.datos?.montoCredito ?? resultado.montoCredito;
+  return parseNumero(raw);
+}
+
+function mensajeMontoAutorizadoYHorario(montoCredito: number): string {
+  return (
+    `Tu monto autorizado es:\n${formatMoneda(montoCredito)} 🏠\n` +
+    "¿En qué día y horario te podemos contactar?"
+  );
+}
 
 const datosPrecalificacionPorTelefono = new Map<
   string,
@@ -206,10 +216,12 @@ async function guardarLead(
     estado: "nuevo",
   };
   if (datosPrecalificacion) {
-    leadPayload.saldo_subcuenta = datosPrecalificacion.saldoSubcuentaRaw;
-    leadPayload.monto_base = datosPrecalificacion.montoBase;
-    leadPayload.monto_aprobado_min = datosPrecalificacion.montoAprobadoMin;
-    leadPayload.monto_aprobado_max = datosPrecalificacion.montoAprobadoMax;
+    if (datosPrecalificacion.saldoSubcuentaRaw !== undefined) {
+      leadPayload.saldo_subcuenta = datosPrecalificacion.saldoSubcuentaRaw;
+    }
+    leadPayload.monto_credito = datosPrecalificacion.montoCreditoRaw;
+    leadPayload.monto_aprobado_min = datosPrecalificacion.montoCredito;
+    leadPayload.monto_aprobado_max = datosPrecalificacion.montoCredito;
   }
 
   const conv = await getConversation(phone);
@@ -359,22 +371,16 @@ export async function ejecutarPasoCore(args: {
       });
       try {
         const resultado = await consultarPrecalificacionScraper(nss);
+        const montoCredito = extraerMontoCredito(resultado);
+        const montoCreditoRaw =
+          resultado.datos?.montoCredito ?? resultado.montoCredito;
         const saldoSubcuentaRaw = resultado.datos?.saldoSubcuenta;
-        const saldoSubcuenta = parseNumero(saldoSubcuentaRaw);
         const success = resultado.success === true || resultado.califica === true;
-        if (
-          success &&
-          saldoSubcuenta > 0 &&
-          (typeof saldoSubcuentaRaw === "number" || typeof saldoSubcuentaRaw === "string")
-        ) {
-          const montoBase = Math.floor(saldoSubcuenta * 0.9);
-          const min = Math.floor(saldoSubcuenta * 0.9 * 0.8);
-          const max = Math.floor((saldoSubcuenta * 0.9) / 0.85);
+        if (success && montoCredito > 0 && montoCreditoRaw !== undefined) {
           datosPrecalificacionPorTelefono.set(phone, {
             saldoSubcuentaRaw,
-            montoBase,
-            montoAprobadoMin: min,
-            montoAprobadoMax: max,
+            montoCreditoRaw,
+            montoCredito,
           });
           await actualizarLeadPorConversacion(phone, { nss });
           await setConversation(phone, {
@@ -382,9 +388,7 @@ export async function ejecutarPasoCore(args: {
             name: null,
             nss,
           });
-          return exacto(
-            `Tu monto autorizado es aproximadamente de:\n${formatMoneda(min)} a ${formatMoneda(max)} 🏠\n¿En qué día y horario te podemos contactar?`,
-          );
+          return exacto(mensajeMontoAutorizadoYHorario(montoCredito));
         }
 
         if (resultado.success === false || resultado.califica === false) {
