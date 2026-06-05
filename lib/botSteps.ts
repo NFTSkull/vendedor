@@ -6,6 +6,8 @@ import {
   type InterpretacionUsuario,
 } from "@/lib/claudeAssistant";
 import { getConversation } from "@/lib/conversationMemory";
+import { procesarYEvolucionarGeneradores } from "@/lib/botStepsGeneradores";
+import { procesarYEvolucionarPaneles } from "@/lib/botStepsPaneles";
 import {
   ejecutarPasoCore,
   esComandoReinicio,
@@ -82,6 +84,16 @@ export async function procesarYEvolucionar(args: {
   const phone = args.phone;
   const conv = await getConversation(phone);
   const estadoActual = conv.state;
+  const producto = conv.producto ?? "mejoravit";
+
+  // Router por producto
+  if (producto === "paneles") {
+    return procesarYEvolucionarPaneles({ phone, textoUsuario: texto });
+  }
+  if (producto === "generadores") {
+    return procesarYEvolucionarGeneradores({ phone, textoUsuario: texto });
+  }
+  // producto === 'mejoravit' → flujo actual sin cambios
 
   if (esComandoReinicio(texto)) {
     limpiarHistorialClaude(phone);

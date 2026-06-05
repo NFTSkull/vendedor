@@ -57,7 +57,11 @@ export async function ensureLeadProvisional(
       return null;
     }
 
-    await setConversation(phone, { state: conv.state, lead_id: data.id });
+    await setConversation(phone, {
+      state: conv.state,
+      lead_id: data.id,
+      producto,
+    });
     console.log("[leadProvisional] Lead provisional creado:", {
       phone,
       leadId: data.id,
