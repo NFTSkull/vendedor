@@ -30,12 +30,23 @@ type ResultadoNss = {
     | "error";
   error?: string;
   montos?: {
-    saldo_subcuenta: number | string;
-    monto_base: number;
     monto_aprobado_min: number;
     monto_aprobado_max: number;
   };
 };
+
+const PAGE_SIZE = 1000;
+
+function calcularMontosAprobados(saldoSubcuenta: number): {
+  monto_aprobado_min: number;
+  monto_aprobado_max: number;
+} {
+  const montoPrestable = saldoSubcuenta * 0.9;
+  return {
+    monto_aprobado_min: Math.floor(montoPrestable * 0.8),
+    monto_aprobado_max: Math.floor(montoPrestable / 0.85),
+  };
+}
 
 function autorizado(req: Request): boolean {
   const secret = process.env.CRM_JWT_SECRET;
@@ -75,21 +86,37 @@ async function consultarLeadsPendientes(
   supabaseUrl: string,
   serviceKey: string,
 ): Promise<LeadRow[]> {
-  const url = new URL(`${supabaseUrl}/rest/v1/leads`);
-  url.searchParams.set("select", "id,nss,whatsapp_phone");
-  url.searchParams.set("nss", "not.is.null");
-  url.searchParams.set("saldo_subcuenta", "is.null");
-  url.searchParams.set("order", "created_at.asc");
+  const pendientes: LeadRow[] = [];
+  let offset = 0;
 
-  const res = await fetch(url, { headers: supabaseHeaders(serviceKey) });
-  if (!res.ok) {
-    throw new Error(`Error consultando leads: ${res.status} ${await res.text()}`);
+  while (true) {
+    const url = new URL(`${supabaseUrl}/rest/v1/leads`);
+    url.searchParams.set("select", "id,nss,whatsapp_phone");
+    url.searchParams.set("nss", "not.is.null");
+    url.searchParams.set("saldo_subcuenta", "is.null");
+    url.searchParams.set("order", "created_at.asc");
+    url.searchParams.set("limit", String(PAGE_SIZE));
+    url.searchParams.set("offset", String(offset));
+
+    const res = await fetch(url, { headers: supabaseHeaders(serviceKey) });
+    if (!res.ok) {
+      throw new Error(
+        `Error consultando leads: ${res.status} ${await res.text()}`,
+      );
+    }
+
+    const rows = (await res.json()) as LeadRow[];
+    pendientes.push(
+      ...rows.filter(
+        (lead) => typeof lead.nss === "string" && lead.nss.trim().length > 0,
+      ),
+    );
+
+    if (rows.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
   }
 
-  const rows = (await res.json()) as LeadRow[];
-  return rows.filter(
-    (lead) => typeof lead.nss === "string" && lead.nss.trim().length > 0,
-  );
+  return pendientes;
 }
 
 async function actualizarLead(
@@ -212,22 +239,13 @@ async function ejecutarBackfill(): Promise<{
         resultado.success === true || resultado.califica === true;
 
       if (success && saldoSubcuenta > 0 && saldoSubcuentaRaw !== undefined) {
-        await actualizarLead(supabaseUrl, supabaseKey, lead.id, {
-          saldo_subcuenta: saldoSubcuentaRaw,
-          monto_base: saldoSubcuenta,
-          monto_aprobado_min: saldoSubcuenta,
-          monto_aprobado_max: saldoSubcuenta,
-        });
+        const montos = calcularMontosAprobados(saldoSubcuenta);
+        await actualizarLead(supabaseUrl, supabaseKey, lead.id, montos);
 
         resultados.push({
           ...base,
           estado: "montos_actualizados",
-          montos: {
-            saldo_subcuenta: saldoSubcuentaRaw,
-            monto_base: saldoSubcuenta,
-            monto_aprobado_min: saldoSubcuenta,
-            monto_aprobado_max: saldoSubcuenta,
-          },
+          montos,
         });
       } else if (
         resultado.success === false ||
