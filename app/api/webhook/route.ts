@@ -11,13 +11,19 @@ import {
 } from "@/lib/messagesDb";
 import { getMetaWebhookVerificationResponse } from "@/lib/metaWebhookVerification";
 import { extraerNssOnceDigitos } from "@/lib/nss";
-import { enviarPushNuevoLead } from "@/lib/pushNotifications";
+import { enviarPushNuevoLead, enviarPushNuevoMensaje } from "@/lib/pushNotifications";
 import { extraerTextosEntrantes, payloadDebeIgnorarPorEcos } from "@/lib/parseWhatsAppWebhook";
 import { resolveWhatsAppAccount } from "@/lib/whatsappAccountResolver";
 import { enviarMensajeTextoWa } from "@/lib/whatsappCloud";
 
 export const runtime = "nodejs";
 const ultimoWamidPorTelefono = new Map<string, string>();
+
+const ESTADOS_PUSH_MENSAJE_ENTRANTE = new Set([
+  "contactado",
+  "nuevo",
+  "no_interesado",
+]);
 
 const MSG_SOLO_TEXTO =
   "Solo puedo procesar mensajes de texto por el momento. " +
@@ -294,6 +300,22 @@ export async function POST(req: NextRequest): Promise<Response> {
       }
     } catch (err) {
       console.error("[webhook] Error guardando mensaje entrante:", err);
+    }
+
+    if (
+      leadAntes &&
+      leadChat &&
+      ESTADOS_PUSH_MENSAJE_ENTRANTE.has(leadChat.estado)
+    ) {
+      try {
+        await enviarPushNuevoMensaje({
+          leadId: leadChat.id,
+          telefono: leadChat.whatsapp_phone,
+          mensaje: m.body,
+        });
+      } catch (err) {
+        console.error("[webhook] Error enviando push nuevo mensaje:", err);
+      }
     }
 
     if (leadChat?.estado === "contactado") {

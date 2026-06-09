@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   getConversation: vi.fn(),
   ensureLeadProvisional: vi.fn(),
   enviarPushNuevoLead: vi.fn(),
+  enviarPushNuevoMensaje: vi.fn(),
   procesarYEvolucionar: vi.fn(),
   enviarMensajeTextoWa: vi.fn(),
 }));
@@ -39,6 +40,7 @@ vi.mock("@/lib/leadProvisional", () => ({
 
 vi.mock("@/lib/pushNotifications", () => ({
   enviarPushNuevoLead: mocks.enviarPushNuevoLead,
+  enviarPushNuevoMensaje: mocks.enviarPushNuevoMensaje,
 }));
 
 vi.mock("@/lib/botSteps", () => ({
@@ -77,6 +79,7 @@ describe("POST /api/webhook", () => {
     });
     mocks.ensureLeadProvisional.mockResolvedValue("lead-1");
     mocks.enviarPushNuevoLead.mockResolvedValue(undefined);
+    mocks.enviarPushNuevoMensaje.mockResolvedValue(undefined);
     mocks.buscarLeadPorTelefono.mockResolvedValue(null);
     mocks.buscarLeadPorId.mockResolvedValue({
       id: "lead-1",
@@ -253,6 +256,40 @@ describe("POST /api/webhook", () => {
         accessToken: "jefe-token",
       }),
     );
+  });
+
+  it("envía push de nuevo mensaje cuando el lead ya existía", async () => {
+    mocks.buscarLeadPorTelefono.mockResolvedValue({
+      id: "lead-existente",
+      whatsapp_phone: "5215550000000",
+      estado: "contactado",
+    });
+    mocks.getConversation.mockResolvedValue({
+      state: "finalizado",
+      name: null,
+      nss: null,
+      lead_id: "lead-existente",
+    });
+    mocks.buscarLeadPorId.mockResolvedValue({
+      id: "lead-existente",
+      whatsapp_phone: "5215550000000",
+      estado: "contactado",
+    });
+
+    const req = new Request("http://localhost/api/webhook", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+
+    await POST(req as never);
+
+    expect(mocks.enviarPushNuevoLead).not.toHaveBeenCalled();
+    expect(mocks.enviarPushNuevoMensaje).toHaveBeenCalledWith({
+      leadId: "lead-existente",
+      telefono: "5215550000000",
+      mensaje: "Hola",
+    });
+    expect(mocks.procesarYEvolucionar).not.toHaveBeenCalled();
   });
 
   it("responde y guarda mensaje cuando el entrante no es texto", async () => {

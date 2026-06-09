@@ -24,10 +24,10 @@ function ensureVapidConfig(): boolean {
   return true;
 }
 
-export async function enviarPushNuevoLead(args: {
-  leadId: string;
-  telefono: string;
-  horario: string | null | undefined;
+async function enviarPushPayload(payload: {
+  title: string;
+  body: string;
+  url: string;
 }): Promise<void> {
   if (!ensureVapidConfig()) {
     return;
@@ -46,12 +46,7 @@ export async function enviarPushNuevoLead(args: {
   const subscriptions = (data ?? []) as PushSubscriptionRow[];
   if (subscriptions.length === 0) return;
 
-  const horario = args.horario && args.horario.trim() ? args.horario : "Sin horario";
-  const payload = JSON.stringify({
-    title: "Nuevo lead Mejoravit",
-    body: `Teléfono: ${args.telefono} | Horario: ${horario}`,
-    url: `/crm/leads/${args.leadId}`,
-  });
+  const payloadJson = JSON.stringify(payload);
 
   for (const sub of subscriptions) {
     try {
@@ -63,7 +58,7 @@ export async function enviarPushNuevoLead(args: {
             auth: sub.auth,
           },
         },
-        payload,
+        payloadJson,
       );
     } catch (err: unknown) {
       const statusCode =
@@ -77,4 +72,29 @@ export async function enviarPushNuevoLead(args: {
       }
     }
   }
+}
+
+export async function enviarPushNuevoLead(args: {
+  leadId: string;
+  telefono: string;
+  horario: string | null | undefined;
+}): Promise<void> {
+  const horario = args.horario && args.horario.trim() ? args.horario : "Sin horario";
+  await enviarPushPayload({
+    title: "Nuevo lead Mejoravit",
+    body: `Teléfono: ${args.telefono} | Horario: ${horario}`,
+    url: `/crm/leads/${args.leadId}`,
+  });
+}
+
+export async function enviarPushNuevoMensaje(args: {
+  leadId: string;
+  telefono: string;
+  mensaje: string;
+}): Promise<void> {
+  await enviarPushPayload({
+    title: `Nuevo mensaje de ${args.telefono}`,
+    body: args.mensaje.trim().slice(0, 60),
+    url: `/crm/leads/${args.leadId}/chat`,
+  });
 }
