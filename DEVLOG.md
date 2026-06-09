@@ -1,5 +1,17 @@
 # DEVLOG
 
+## 2026-06-05 (flujo NSS→horario y captura con NSS existente)
+
+- Orden corregido: `esperando_credito_activo` (No) → `esperando_datos` → monto → `esperando_horario` → `finalizado`.
+- `resolverNssGuardado`: `conversations.nss`, `data.nss` o query `leads.nss`; en horario con NSS → scraper + cierre sin re-pedir NSS.
+- `claudeAssistant`: `INSTRUCCIONES_CLAUDE_ESPERANDO_HORARIO`; `botSteps.ts` fallback `fuera_tema` → horario si texto ≥3 en `esperando_horario`.
+- `reengagement.ts`: `MSG_CONTACTO_HORARIO` unificado en toques de `esperando_horario`.
+
+## 2026-06-05 (opt-out pre-Claude y medios no texto)
+
+- `lib/botSteps.ts`: `esOptOut` + `manejarOptOut` antes de Claude; `manejarOptOut` exportado desde `botStepsCore`.
+- `app/api/webhook/route.ts`: mensajes entrantes no-texto (imagen/audio/video/etc.) reciben `MSG_SOLO_TEXTO` y se guarda saliente en `messages`.
+
 ## 2026-06-05 (opt-out, no califica y cierre con horario)
 
 - `lib/botStepsCore.ts`: `esOptOut()` antes del switch (excepto `inicio`) → `no_interesado` + `finalizado`; scraper `no califica` usa `rechazar()` (`descalificado`); `mensajeFinalizadoPost(horario)` con 8140100246; estado `finalizado` sin Claude vía `botSteps.ts` (retorno directo).

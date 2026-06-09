@@ -120,13 +120,14 @@ describe("reengagement", () => {
     expect(mensaje).toContain("11 dígitos");
   });
 
-  it("genera mensaje de horario con monto en toque 2", () => {
+  it("genera mensaje de horario sin detalles del crédito en toque 2", () => {
     const mensaje = construirMensajeReengagement(2, "esperando_horario", {
       monto_aprobado_min: 120000,
       monto_aprobado_max: 135000,
     });
-    expect(mensaje).toContain("$120,000 – $135,000");
-    expect(mensaje).toContain("no queremos que pierdas tu monto autorizado");
+    expect(mensaje).toContain("¿Te podemos contactar ahorita mismo");
+    expect(mensaje).not.toContain("Mejoravit");
+    expect(mensaje).not.toContain("monto autorizado");
   });
 
   it("resuelve toque pendiente por prioridad", () => {

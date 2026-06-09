@@ -12,6 +12,9 @@ import { procesarYEvolucionarPaneles } from "@/lib/botStepsPaneles";
 import {
   ejecutarPasoCore,
   esComandoReinicio,
+  esOptOut,
+  manejarOptOut,
+  MSG_REINTENTO_HORARIO,
   preguntaDelEstado,
   reiniciarFlujoCore,
   tipoEsperadoDelEstado,
@@ -104,6 +107,11 @@ export async function procesarYEvolucionar(args: {
     return aplicarClaudeSalida(phone, reinicio, "reinicio");
   }
 
+  if (estadoActual !== "inicio" && esOptOut(texto)) {
+    const resultadoOptOut = await manejarOptOut(phone);
+    return resultadoOptOut.texto;
+  }
+
   if (estadoActual === "inicio") {
     const resultadoInicio = await ejecutarPasoCore({
       phone,
@@ -142,9 +150,13 @@ export async function procesarYEvolucionar(args: {
     console.log("[FLUJO] interpretacion Claude:", interp?.tipo);
 
     if (interp?.tipo === "fuera_tema") {
-      return limpiarMarkdown(
-        interp.respuestaRetomo ?? preguntaDelEstado(statePregunta),
-      );
+      if (state === "esperando_horario" && texto.length >= 3) {
+        entrada = { esHorarioValido: true };
+      } else {
+        return limpiarMarkdown(
+          interp.respuestaRetomo ?? preguntaDelEstado(statePregunta),
+        );
+      }
     }
 
     if (interp?.tipo === "reiniciar") {
@@ -153,10 +165,13 @@ export async function procesarYEvolucionar(args: {
       return reinicio.texto;
     }
 
-    if (
-      interp?.tipo === "ambiguo" ||
-      interp?.tipo === "invalido"
-    ) {
+    if (interp?.tipo === "ambiguo" || interp?.tipo === "invalido") {
+      if (state === "esperando_horario" && interp.respuestaRetomo) {
+        return limpiarMarkdown(interp.respuestaRetomo);
+      }
+      if (state === "esperando_horario") {
+        return MSG_REINTENTO_HORARIO;
+      }
       return preguntaDelEstado(statePregunta);
     }
 

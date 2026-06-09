@@ -53,6 +53,7 @@ function makeLeadsSelect() {
             whatsapp_phone: row.whatsapp_phone,
             estado: (row.estado as string) ?? "nuevo",
             horario: row.horario ?? null,
+            nss: row.nss ?? null,
           },
           error: null,
         };
@@ -149,8 +150,8 @@ const FLUJO_SI = [
   "si",
   "SI",
   "no",
-  "Martes 10am",
   "12345678901",
+  "Martes 10am",
 ] as const;
 
 describe("botSteps memoria Map", () => {
@@ -250,16 +251,18 @@ describe("botSteps memoria Map", () => {
       lead_id: "lead-1",
     });
 
+    expect(leadsUpdateRows.some((u) => u.patch.saldo_subcuenta === 100000)).toBe(
+      true,
+    );
+    expect(leadsUpdateRows.some((u) => u.patch.monto_credito === 85000)).toBe(
+      true,
+    );
+
     const ultimaActualizacion = leadsUpdateRows[leadsUpdateRows.length - 1];
     expect(ultimaActualizacion.patch).toMatchObject({
       nss: "12345678901",
       horario: "Martes 10am",
       estado: "nuevo",
-      saldo_subcuenta: 100000,
-      monto_base: 100000,
-      monto_credito: 85000,
-      monto_aprobado_min: 100000,
-      monto_aprobado_max: 100000,
     });
 
     logSpy.mockRestore();
@@ -271,18 +274,25 @@ describe("botSteps memoria Map", () => {
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Martes 10am" });
 
-    const reply = await procesarYEvolucionar({
+    const replyNss = await procesarYEvolucionar({
       phone: p,
       textoUsuario: "09876543210",
     });
 
-    expect(reply).toContain("Tu monto autorizado es:");
-    expect(reply).toContain("$100,000");
-    expect(reply).toContain("Listo, un asesor te contactará Martes 10am");
-    expect(reply).toContain("8140100246");
-    expect(reply).not.toContain("día y horario");
+    expect(replyNss).toContain("Tu monto autorizado es:");
+    expect(replyNss).toContain("$100,000");
+    expect(replyNss).toContain("¿Te podemos contactar ahorita mismo");
+    expect(conversationMemory.get(p)?.state).toBe("esperando_horario");
+
+    const replyHorario = await procesarYEvolucionar({
+      phone: p,
+      textoUsuario: "Martes 10am",
+    });
+
+    expect(replyHorario).toContain("Listo, un asesor te contactará Martes 10am");
+    expect(replyHorario).toContain("8140100246");
+    expect(conversationMemory.get(p)?.state).toBe("finalizado");
   });
 
   it("pide reingresar NSS cuando la precalificación no devuelve datos válidos", async () => {
@@ -304,7 +314,6 @@ describe("botSteps memoria Map", () => {
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Martes 10am" });
 
     const reply = await procesarYEvolucionar({
       phone: p,
@@ -334,7 +343,6 @@ describe("botSteps memoria Map", () => {
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Martes 10am" });
 
     const reply = await procesarYEvolucionar({
       phone: p,
@@ -383,7 +391,6 @@ describe("botSteps memoria Map", () => {
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Martes 10am" });
 
     const reply = await procesarYEvolucionar({
       phone: p,
@@ -442,15 +449,17 @@ describe("botSteps memoria Map", () => {
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Martes 10am" });
 
-    const reply = await procesarYEvolucionar({
+    const replyNss = await procesarYEvolucionar({
       phone: p,
       textoUsuario: "01234567890",
     });
 
-    expect(reply).toContain("Tu monto autorizado es:");
-    expect(reply).toContain("$100,000");
+    expect(replyNss).toContain("Tu monto autorizado es:");
+    expect(replyNss).toContain("$100,000");
+    expect(conversationMemory.get(p)?.state).toBe("esperando_horario");
+
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Martes 10am" });
     expect(conversationMemory.get(p)?.state).toBe("finalizado");
   });
 
@@ -460,7 +469,6 @@ describe("botSteps memoria Map", () => {
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Martes 10am" });
 
     const reply = await procesarYEvolucionar({
       phone: p,
@@ -470,6 +478,80 @@ describe("botSteps memoria Map", () => {
     expect(reply).toContain("11 dígitos");
     expect(conversationMemory.get(p)?.state).toBe("esperando_datos");
     expect(conversationMemory.get(p)?.nss).toBeNull();
+  });
+
+  it("con NSS guardado no pide NSS de nuevo al capturar horario", async () => {
+    const p = "5212121212121";
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "12345678901" });
+
+    expect(conversationMemory.get(p)?.state).toBe("esperando_horario");
+
+    const reply = await procesarYEvolucionar({
+      phone: p,
+      textoUsuario: "Mañana a las 11am",
+    });
+
+    expect(reply).not.toContain("Compárteme tu Número de Seguro Social");
+    expect(reply).toContain("Tu monto autorizado es:");
+    expect(reply).toContain("Listo, un asesor te contactará Mañana a las 11am");
+    expect(conversationMemory.get(p)?.state).toBe("finalizado");
+  });
+
+  it("con NSS solo en lead finaliza con monto al capturar horario", async () => {
+    const p = "5213131313131";
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+
+    conversationsStore.set(p, {
+      state: "esperando_horario",
+      nss: null,
+      lead_id: "lead-1",
+    });
+    leadsById.set("lead-1", {
+      id: "lead-1",
+      whatsapp_phone: p,
+      estado: "nuevo",
+      nss: "43119209344",
+      horario: "",
+    });
+
+    const reply = await procesarYEvolucionar({
+      phone: p,
+      textoUsuario: "Mañana a las 11am",
+    });
+
+    expect(reply).not.toContain("Compárteme tu Número de Seguro Social");
+    expect(reply).toContain("Tu monto autorizado es:");
+    expect(conversationMemory.get(p)?.state).toBe("finalizado");
+  });
+
+  it("sin NSS guardado pide NSS después de capturar horario", async () => {
+    const p = "5214141414141";
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+
+    conversationsStore.set(p, {
+      state: "esperando_horario",
+      nss: null,
+      lead_id: "lead-1",
+    });
+    leadsById.set("lead-1", {
+      id: "lead-1",
+      whatsapp_phone: p,
+      estado: "nuevo",
+      nss: "",
+      horario: "",
+    });
+
+    const reply = await procesarYEvolucionar({
+      phone: p,
+      textoUsuario: "Martes 3pm",
+    });
+
+    expect(reply).toContain("Compárteme tu Número de Seguro Social");
+    expect(conversationMemory.get(p)?.state).toBe("esperando_datos");
   });
 
   it("rechaza crédito Infonavit activo", async () => {

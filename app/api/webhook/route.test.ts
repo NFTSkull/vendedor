@@ -255,6 +255,70 @@ describe("POST /api/webhook", () => {
     );
   });
 
+  it("responde y guarda mensaje cuando el entrante no es texto", async () => {
+    mocks.extraerTextosEntrantes.mockReturnValue([]);
+    mocks.getConversation.mockResolvedValue({
+      state: "esperando_datos",
+      name: null,
+      nss: null,
+      lead_id: "lead-img",
+    });
+    mocks.ensureLeadProvisional.mockResolvedValue("lead-img");
+    mocks.buscarLeadPorTelefono.mockResolvedValue({
+      id: "lead-img",
+      whatsapp_phone: "5215550000000",
+      estado: "nuevo",
+    });
+
+    const payload = {
+      entry: [
+        {
+          changes: [
+            {
+              field: "messages",
+              value: {
+                metadata: { phone_number_id: "phone-id" },
+                messages: [
+                  {
+                    from: "5215550000000",
+                    id: "wamid.image.1",
+                    type: "image",
+                    image: { id: "media-1" },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const req = new Request("http://localhost/api/webhook", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+
+    const res = await POST(req as never);
+
+    expect(res.status).toBe(200);
+    expect(mocks.procesarYEvolucionar).not.toHaveBeenCalled();
+    expect(mocks.enviarMensajeTextoWa).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "5215550000000",
+        body:
+          "Solo puedo procesar mensajes de texto por el momento. " +
+          "Por favor escribe tu respuesta 😊",
+      }),
+    );
+    expect(mocks.guardarMensaje).toHaveBeenCalledWith({
+      leadId: "lead-img",
+      direccion: "saliente",
+      contenido:
+        "Solo puedo procesar mensajes de texto por el momento. " +
+        "Por favor escribe tu respuesta 😊",
+    });
+  });
+
   it("con multi-número activo ignora payload de ecos y responde 200", async () => {
     process.env.WHATSAPP_MULTI_NUMBER_ENABLED = "true";
     mocks.payloadDebeIgnorarPorEcos.mockReturnValue(true);

@@ -43,6 +43,24 @@ IMPORTANTE:
 - Siempre termina retomando la pregunta actual con texto exacto
 - Responde en texto plano sin markdown, sin asteriscos, sin símbolos de formato`;
 
+export const INSTRUCCIONES_CLAUDE_ESPERANDO_HORARIO = `El usuario está en el paso de agendar contacto.
+Sin importar lo que pregunte, responde brevemente y termina SIEMPRE pidiendo el horario de contacto.
+Ejemplos:
+- 'Que ocupo?' → 'Solo necesito saber cuándo podemos llamarte para explicarte todo. ¿Mañana, hoy en la tarde? 📞'
+- 'Voy rumbo al trabajo' → '¡Sin problema! ¿A qué hora terminas? Te llamamos cuando gustes 😊'
+- 'Cuanto cuesta?' → 'Te explico todo en la llamada, es sin costo. ¿A qué hora te podemos marcar? 📞'
+Nunca des información detallada del producto, solo redirige al horario de forma natural y amigable.
+Marca tipo 'fuera_tema' para preguntas o comentarios sin horario concreto.
+Marca tipo 'horario' SOLO si el usuario indica día y/o hora para ser contactado.
+Marca tipo 'ambiguo' si menciona actividad o contexto sin proponer cuándo llamar.`;
+
+function instruccionesAdicionalesPorEstado(state: BotState): string {
+  if (state === "esperando_horario") {
+    return INSTRUCCIONES_CLAUDE_ESPERANDO_HORARIO;
+  }
+  return "";
+}
+
 export function limpiarMarkdown(texto: string): string {
   return texto
     .replace(/\*\*(.*?)\*\*/g, "$1")
@@ -119,6 +137,11 @@ export async function interpretarRespuestaUsuario(args: {
   const anthropic = clienteAnthropic();
   if (!anthropic) return null;
 
+  const instruccionesEstado = instruccionesAdicionalesPorEstado(args.state);
+  const bloqueEstado = instruccionesEstado
+    ? `\nInstrucciones especiales para este paso:\n${instruccionesEstado}\n`
+    : "";
+
   const prompt = `Paso actual del flujo: ${args.state}
 Pregunta que debe responder el usuario:
 """
@@ -129,12 +152,12 @@ Mensaje del usuario:
 """
 ${args.textoUsuario}
 """
-
+${bloqueEstado}
 Devuelve SOLO JSON válido (sin markdown) con esta forma:
 {
   "tipo": "si" | "no" | "nss" | "horario" | "reiniciar" | "fuera_tema" | "invalido" | "ambiguo",
   "nss": "11 dígitos solo si tipo es nss, si no null",
-  "respuestaRetomo": "solo si tipo es fuera_tema: respuesta profesional y cordial (máx. 2-3 líneas) que termine con el texto EXACTO de la pregunta actual, copiado literalmente"
+  "respuestaRetomo": "solo si tipo es fuera_tema o ambiguo en esperando_horario: respuesta breve y cordial (máx. 2-3 líneas) que redirija al horario de contacto; en otros pasos termina con el texto EXACTO de la pregunta actual"
 }
 
 Reglas:

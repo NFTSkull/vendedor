@@ -19,6 +19,58 @@ import { enviarMensajeTextoWa } from "@/lib/whatsappCloud";
 export const runtime = "nodejs";
 const ultimoWamidPorTelefono = new Map<string, string>();
 
+const MSG_SOLO_TEXTO =
+  "Solo puedo procesar mensajes de texto por el momento. " +
+  "Por favor escribe tu respuesta 😊";
+
+type WhatsAppNonTextInbound = {
+  from: string;
+  wamid: string | null;
+  phoneNumberId: string | null;
+};
+
+function extraerPhoneNumberIdDeValue(value: Record<string, unknown>): string | null {
+  const metadata = value.metadata;
+  if (!metadata || typeof metadata !== "object") return null;
+  const id = (metadata as Record<string, unknown>).phone_number_id;
+  return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
+function extraerMensajesNoTextoEntrantes(body: unknown): WhatsAppNonTextInbound[] {
+  if (!body || typeof body !== "object") return [];
+  const entry = (body as Record<string, unknown>).entry;
+  if (!Array.isArray(entry)) return [];
+
+  const result: WhatsAppNonTextInbound[] = [];
+  for (const ent of entry) {
+    if (!ent || typeof ent !== "object") continue;
+    const changes = (ent as Record<string, unknown>).changes;
+    if (!Array.isArray(changes)) continue;
+    for (const ch of changes) {
+      if (!ch || typeof ch !== "object") continue;
+      const field = (ch as Record<string, unknown>).field;
+      if (field !== "messages") continue;
+      const value = (ch as Record<string, unknown>).value;
+      if (!value || typeof value !== "object") continue;
+      const phoneNumberId = extraerPhoneNumberIdDeValue(value as Record<string, unknown>);
+      const messages = (value as Record<string, unknown>).messages;
+      if (!Array.isArray(messages)) continue;
+
+      for (const raw of messages) {
+        if (!raw || typeof raw !== "object") continue;
+        const m = raw as Record<string, unknown>;
+        const from = m.from;
+        if (typeof from !== "string" || !from.trim()) continue;
+        const type = m.type;
+        if (type === "text" || typeof type !== "string") continue;
+        const wamid = typeof m.id === "string" ? m.id : null;
+        result.push({ from: from.trim(), wamid, phoneNumberId });
+      }
+    }
+  }
+  return result;
+}
+
 function isMultiNumberEnabled(): boolean {
   return process.env.WHATSAPP_MULTI_NUMBER_ENABLED === "true";
 }
@@ -62,11 +114,74 @@ export async function POST(req: NextRequest): Promise<Response> {
   const graphVersion =
     process.env.WHATSAPP_GRAPH_API_VERSION ?? process.env.GRAPH_API_VERSION;
   const mensajes = extraerTextosEntrantes(payload);
+  const mensajesNoTexto = extraerMensajesNoTextoEntrantes(payload);
   if (!accessToken || !phoneNumberId) {
     console.error(
       "Faltan WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID en el entorno",
     );
     return Response.json({}, { status: 200 });
+  }
+
+  for (const m of mensajesNoTexto) {
+    let resolvedAccessToken = accessToken;
+    let resolvedPhoneNumberId = phoneNumberId;
+
+    if (isMultiNumberEnabled()) {
+      try {
+        const account = await resolveWhatsAppAccount(m.phoneNumberId ?? undefined);
+        if (account?.accessToken && account.phoneNumberId) {
+          resolvedAccessToken = account.accessToken;
+          resolvedPhoneNumberId = account.phoneNumberId;
+        }
+      } catch (err) {
+        console.error("[webhook] resolveWhatsAppAccount fallback env:", err);
+      }
+    }
+
+    if (m.wamid) {
+      const ultimo = ultimoWamidPorTelefono.get(m.from);
+      if (ultimo === m.wamid) {
+        console.log("[WEBHOOK_DEBUG] mensaje no-texto duplicado ignorado:", m.wamid);
+        continue;
+      }
+      ultimoWamidPorTelefono.set(m.from, m.wamid);
+    }
+
+    await ensureLeadProvisional(m.from, {
+      phoneNumberId: resolvedPhoneNumberId,
+    });
+
+    const leadNoTexto = await buscarLeadPorTelefono(m.from);
+    if (leadNoTexto?.estado === "contactado") {
+      continue;
+    }
+
+    const envioNoTexto = await enviarMensajeTextoWa({
+      phoneNumberId: resolvedPhoneNumberId,
+      accessToken: resolvedAccessToken,
+      graphVersion,
+      to: m.from,
+      body: MSG_SOLO_TEXTO,
+    });
+    if (!envioNoTexto.ok) {
+      console.error("[WhatsApp send non-text]", envioNoTexto.status, envioNoTexto.data);
+      continue;
+    }
+
+    const convNoTexto = await getConversation(m.from);
+    const leadIdNoTexto =
+      convNoTexto.lead_id ?? leadNoTexto?.id ?? (await buscarLeadPorTelefono(m.from))?.id;
+    if (leadIdNoTexto) {
+      try {
+        await guardarMensaje({
+          leadId: leadIdNoTexto,
+          direccion: "saliente",
+          contenido: MSG_SOLO_TEXTO,
+        });
+      } catch (err) {
+        console.error("[webhook] Error guardando mensaje saliente no-texto:", err);
+      }
+    }
   }
 
   for (const m of mensajes) {

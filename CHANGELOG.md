@@ -1,5 +1,20 @@
 # Changelog
 
+## [Sin versión semver] — 2026-06-05 (continuación IV)
+
+### Cambio actual
+
+- **Bot — flujo NSS → horario:** tras crédito activo se pide NSS primero; el horario se captura después del monto; en `esperando_horario` con NSS existente (conversación o `leads`) se precalifica y finaliza sin volver a pedir NSS.
+- **Bot — Claude en horario:** instrucciones para redirigir preguntas fuera de guión al contacto; fallback si `fuera_tema` con texto ≥3 chars en `esperando_horario`.
+- **Re-engagement horario:** mensajes sin detalles del producto, solo agendar contacto.
+
+## [Sin versión semver] — 2026-06-05 (continuación III)
+
+### Cambio actual
+
+- **Bot — opt-out antes de Claude:** `esOptOut` se evalúa en `botSteps.ts` antes de `interpretarRespuestaUsuario`, evitando que Claude bloquee el cierre por `fuera_tema`.
+- **Webhook — medios no texto:** imagen, audio o video reciben respuesta fija y se persiste el mensaje saliente en `messages`.
+
 ## [Sin versión semver] — 2026-06-05 (continuación II)
 
 ### Cambio actual

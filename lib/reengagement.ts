@@ -2,6 +2,10 @@ import type { BotRuntimeState } from "@/lib/conversationMemory";
 
 export type ReengagementTouch = 1 | 2;
 
+export const MSG_CONTACTO_HORARIO =
+  "¿Te podemos contactar ahorita mismo para darte todos los detalles? " +
+  "Si no, ¿en qué horario te viene mejor? 📞";
+
 const ESTADOS_REENGAGEMENT = new Set<BotRuntimeState>([
   "esperando_labor_vigente",
   "esperando_infonavit",
@@ -104,14 +108,10 @@ export function estadoPermiteReengagement(
 export function construirMensajeReengagement(
   touch: ReengagementTouch,
   state: BotRuntimeState,
-  lead: LeadReengagement,
+  _lead: LeadReengagement,
 ): string | null {
+  void _lead;
   if (!ESTADOS_REENGAGEMENT.has(state)) return null;
-
-  const conMonto = leadTieneMonto(lead);
-  const min = formatearMonto(lead.monto_aprobado_min);
-  const max = formatearMonto(lead.monto_aprobado_max);
-  const rangoMonto = `${min} – ${max}`;
 
   if (touch === 1) {
     switch (state) {
@@ -140,17 +140,7 @@ export function construirMensajeReengagement(
           "de 11 dígitos. ¿Me lo compartes?"
         );
       case "esperando_horario":
-        if (conMonto) {
-          return (
-            `Hola 😊 Ya tengo tu monto autorizado: ${rangoMonto} pesos 🏡 ` +
-            "¿En qué horario te podemos llamar para darte todos los detalles?"
-          );
-        }
-        return (
-          "¡Hola! Estamos listos para contactarte y darte toda la " +
-          "información del crédito Mejoravit. " +
-          "¿Cuándo es un buen momento para llamarte? 📞"
-        );
+        return MSG_CONTACTO_HORARIO;
       default:
         return null;
     }
@@ -173,18 +163,7 @@ export function construirMensajeReengagement(
         "tu monto autorizado al instante. ¿Me lo compartes? 🏡"
       );
     case "esperando_horario":
-      if (conMonto) {
-        return (
-          "Hola, no queremos que pierdas tu monto autorizado 💰\n" +
-          `${rangoMonto} pesos te están esperando. Un asesor puede llamarte hoy mismo. ` +
-          "¿A qué hora te viene bien? ⏰"
-        );
-      }
-      return (
-        "Hola 👋 Un asesor de Mejoravit está listo para " +
-        "llamarte hoy y explicarte todo sobre tu crédito. " +
-        "¿Tienes 10 minutos? Dinos a qué hora. 📞"
-      );
+      return MSG_CONTACTO_HORARIO;
     default:
       return null;
   }

@@ -15,6 +15,7 @@ import {
   esNegativo,
   normalizarTexto,
 } from "@/lib/normalizeText";
+import { MSG_CONTACTO_HORARIO } from "@/lib/reengagement";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type BotState =
@@ -53,8 +54,11 @@ export const MSG_RECHAZO_CREDITO_ACTIVO =
 export const MSG_SOLICITUD_DATOS =
   "Compárteme tu Número de Seguro Social (NSS) para darte el monto autorizado.";
 
-export const MSG_MONTO_Y_HORARIO =
-  "¿En qué día y horario te podemos contactar para darte más detalles?";
+export const MSG_MONTO_Y_HORARIO = MSG_CONTACTO_HORARIO;
+
+export const MSG_REINTENTO_HORARIO =
+  "¿A qué hora te podemos llamar para explicarte todo? " +
+  "Por ejemplo: hoy a las 3pm, mañana en la mañana, etc. 📞";
 
 export const MSG_FINAL =
   "Gracias. Un asesor se pondrá en contacto contigo en el horario que nos indicaste.";
@@ -249,7 +253,7 @@ async function resolverHorarioParaMensaje(
   }
 }
 
-async function manejarOptOut(phone: string): Promise<ResultadoPaso> {
+export async function manejarOptOut(phone: string): Promise<ResultadoPaso> {
   datosPrecalificacionPorTelefono.delete(phone);
   const ok = await actualizarLeadPorConversacion(phone, {
     estado: "no_interesado",
@@ -293,6 +297,128 @@ async function responderSiNoCore(
   if (esAfirmativo(texto)) return onSi();
   if (esNegativo(texto)) return onNo();
   return reintento;
+}
+
+async function resolverNssGuardado(
+  phone: string,
+  row: { nss: string | null; data?: Record<string, unknown> },
+): Promise<string | null> {
+  if (typeof row.nss === "string" && row.nss.trim()) {
+    return row.nss.trim();
+  }
+  if (typeof row.data?.nss === "string" && row.data.nss.trim()) {
+    return row.data.nss.trim();
+  }
+
+  const leadId = await resolverLeadId(phone);
+  if (!leadId) return null;
+
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data: lead } = await supabase
+      .from("leads")
+      .select("nss")
+      .eq("id", leadId)
+      .maybeSingle();
+    const nss = typeof lead?.nss === "string" ? lead.nss.trim() : "";
+    return nss || null;
+  } catch (err) {
+    console.error("[lead] Error leyendo NSS:", err);
+    return null;
+  }
+}
+
+async function procesarPrecalificacionParaLead(
+  phone: string,
+  nss: string,
+  horario: string,
+  trasMonto: "horario" | "finalizar",
+): Promise<ResultadoPaso> {
+  datosPrecalificacionPorTelefono.delete(phone);
+  const leadIdNss = await resolverLeadId(phone);
+  console.log("[lead confirmado]", {
+    phone,
+    name: null,
+    nss,
+    lead_id: leadIdNss,
+  });
+
+  try {
+    const resultado = await consultarPrecalificacionScraper(nss);
+    const saldoSubcuenta = extraerSaldoSubcuenta(resultado);
+    const saldoSubcuentaRaw = resultado.datos?.saldoSubcuenta;
+    const montoCreditoRaw =
+      resultado.datos?.montoCredito ?? resultado.montoCredito;
+    const success = resultado.success === true || resultado.califica === true;
+
+    if (success && saldoSubcuenta > 0 && saldoSubcuentaRaw !== undefined) {
+      const datosPrecalificacion = {
+        saldoSubcuentaRaw,
+        saldoSubcuenta,
+        montoCreditoRaw,
+      };
+      const leadIdMontos = await resolverLeadId(phone);
+      const montosPayload = {
+        saldo_subcuenta: saldoSubcuentaRaw,
+        monto_base: saldoSubcuenta,
+        monto_aprobado_min: saldoSubcuenta,
+        monto_aprobado_max: saldoSubcuenta,
+      };
+      console.log("[lead] Actualizando montos:", {
+        ...montosPayload,
+        lead_id: leadIdMontos,
+      });
+      const montosOk = await actualizarLeadPorConversacion(phone, montosPayload);
+      if (!montosOk) {
+        console.error("[lead] Error guardando montos:", {
+          phone,
+          lead_id: leadIdMontos,
+        });
+      }
+      if (datosPrecalificacion.montoCreditoRaw !== undefined) {
+        const montoCreditoOk = await actualizarLeadPorConversacion(phone, {
+          monto_credito: datosPrecalificacion.montoCreditoRaw,
+        });
+        if (!montoCreditoOk) {
+          console.error("[lead] Error guardando monto_credito:", {
+            phone,
+            lead_id: leadIdMontos,
+          });
+        }
+      }
+
+      if (trasMonto === "horario") {
+        await setConversation(phone, {
+          state: "esperando_horario",
+          name: null,
+          nss: null,
+          data: { nss },
+        });
+        return exacto(
+          `${mensajeMontoAutorizado(saldoSubcuenta)}\n\n${MSG_MONTO_Y_HORARIO}`,
+        );
+      }
+
+      await guardarLead(phone, nss, horario, datosPrecalificacion);
+      await setConversation(phone, {
+        state: "finalizado",
+        name: null,
+        nss: null,
+        data: { horario, nss },
+      });
+      return exacto(
+        `${mensajeMontoAutorizado(saldoSubcuenta)}\n\n${mensajeFinalizadoPost(horario)}`,
+      );
+    }
+
+    if (resultado.success === false || resultado.califica === false) {
+      return rechazar(phone, MSG_NO_CALIFICA_SCRAPER);
+    }
+
+    return exacto(MSG_REINTENTO_PRECIFICACION);
+  } catch {
+    return exacto(MSG_REINTENTO_PRECIFICACION);
+  }
 }
 
 async function resolverLeadId(phone: string): Promise<string | null> {
@@ -424,11 +550,11 @@ export async function ejecutarPasoCore(args: {
         async () => rechazar(phone, MSG_RECHAZO_CREDITO_ACTIVO),
         async () => {
           await setConversation(phone, {
-            state: "esperando_horario",
+            state: "esperando_datos",
             name: null,
             nss: null,
           });
-          return exacto(MSG_MONTO_Y_HORARIO);
+          return exacto(MSG_SOLICITUD_DATOS);
         },
         exacto(MSG_CREDITO_ACTIVO),
       );
@@ -458,74 +584,13 @@ export async function ejecutarPasoCore(args: {
         name: null,
         nss: null,
       });
-      datosPrecalificacionPorTelefono.delete(phone);
-      console.log("[lead confirmado]", {
-        phone,
-        name: null,
-        nss,
-        lead_id: leadIdNss,
-      });
-      try {
-        const resultado = await consultarPrecalificacionScraper(nss);
-        const saldoSubcuenta = extraerSaldoSubcuenta(resultado);
-        const saldoSubcuentaRaw = resultado.datos?.saldoSubcuenta;
-        const montoCreditoRaw =
-          resultado.datos?.montoCredito ?? resultado.montoCredito;
-        const success = resultado.success === true || resultado.califica === true;
-        if (success && saldoSubcuenta > 0 && saldoSubcuentaRaw !== undefined) {
-          const datosPrecalificacion = {
-            saldoSubcuentaRaw,
-            saldoSubcuenta,
-            montoCreditoRaw,
-          };
-          datosPrecalificacionPorTelefono.set(phone, datosPrecalificacion);
-          const horario = horarioGuardadoEnConversacion(row.data);
-          const leadIdMontos = await resolverLeadId(phone);
-          const montosPayload = {
-            saldo_subcuenta: saldoSubcuentaRaw,
-            monto_base: saldoSubcuenta,
-            monto_aprobado_min: saldoSubcuenta,
-            monto_aprobado_max: saldoSubcuenta,
-          };
-          console.log("[lead] Actualizando montos:", {
-            ...montosPayload,
-            lead_id: leadIdMontos,
-          });
-          const montosOk = await actualizarLeadPorConversacion(phone, montosPayload);
-          if (!montosOk) {
-            console.error("[lead] Error guardando montos:", {
-              phone,
-              lead_id: leadIdMontos,
-            });
-          }
-          await guardarLead(phone, nss, horario, datosPrecalificacion);
-          datosPrecalificacionPorTelefono.delete(phone);
-          await setConversation(phone, {
-            state: "finalizado",
-            name: null,
-            nss: null,
-          });
-          const cierre = mensajeFinalizadoPost(horario);
-          return exacto(`${mensajeMontoAutorizado(saldoSubcuenta)}\n\n${cierre}`);
-        }
-
-        if (resultado.success === false || resultado.califica === false) {
-          return rechazar(phone, MSG_NO_CALIFICA_SCRAPER);
-        }
-
-        return exacto(MSG_REINTENTO_PRECIFICACION);
-      } catch {
-        return exacto(MSG_REINTENTO_PRECIFICACION);
-      }
+      return procesarPrecalificacionParaLead(phone, nss, "", "horario");
     }
     case "esperando_horario": {
       const horarioValido =
         entrada?.esHorarioValido === true || texto.length >= 3;
       if (!horarioValido) {
-        return exacto(
-          "¿Me compartes día y horario? Por ejemplo: martes 10 am.\n\n" +
-            MSG_MONTO_Y_HORARIO,
-        );
+        return exacto(MSG_REINTENTO_HORARIO);
       }
       const leadIdHorario = await resolverLeadId(phone);
       console.log("[lead] Actualizando horario:", texto, "lead_id:", leadIdHorario);
@@ -538,13 +603,23 @@ export async function ejecutarPasoCore(args: {
         });
       }
 
-      await setConversation(phone, {
-        state: "esperando_datos",
-        name: null,
-        nss: null,
-        data: { ...(row.data ?? {}), horario: texto },
-      });
-      return exacto(MSG_SOLICITUD_DATOS);
+      const nssGuardado = await resolverNssGuardado(phone, row);
+      if (!nssGuardado) {
+        await setConversation(phone, {
+          state: "esperando_datos",
+          name: null,
+          nss: null,
+          data: { ...(row.data ?? {}), horario: texto },
+        });
+        return exacto(MSG_SOLICITUD_DATOS);
+      }
+
+      return procesarPrecalificacionParaLead(
+        phone,
+        nssGuardado,
+        texto,
+        "finalizar",
+      );
     }
     default:
       return await reiniciarFlujoCore(phone);
