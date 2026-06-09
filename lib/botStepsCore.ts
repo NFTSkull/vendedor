@@ -30,20 +30,19 @@ export const MSG_BIENVENIDA =
   "¿Actualmente tienes una relación laboral vigente en Nuevo León?";
 
 export const MSG_RECHAZO_LABOR =
-  "Lo sentimos, este es un requisito indispensable para obtener el crédito.\n\n" +
-  "Por el momento solo podemos continuar con personas que tengan una relación laboral vigente en Nuevo León.";
+  "Gracias por contactarnos. Por el momento el crédito Mejoravit está disponible solo para trabajadores activos en Nuevo León. Si tu situación cambia, con gusto te podemos ayudar.";
 
 export const MSG_INFONAVIT =
   "¿Actualmente estás dado de alta en Infonavit?";
 
 export const MSG_RECHAZO_INFONAVIT =
-  "Lo sentimos, estar dado de alta en Infonavit es un requisito indispensable para obtener el crédito.";
+  "Gracias por contactarnos. Para el crédito Mejoravit es necesario estar dado de alta en Infonavit. Cuando lo estés, escríbenos y te ayudamos.";
 
 export const MSG_CREDITO_ACTIVO =
   "¿Actualmente estas pagando un crédito Infonavit?";
 
 export const MSG_RECHAZO_CREDITO_ACTIVO =
-  "Es necesario que termines de pagar tu crédito Infonavit actual para poder continuar con este trámite.";
+  "Gracias por contactarnos. El crédito Mejoravit no aplica si ya tienes un crédito Infonavit activo.";
 
 export const MSG_SOLICITUD_DATOS =
   "Compárteme tu Número de Seguro Social (NSS) para darte el monto autorizado.";
@@ -187,6 +186,12 @@ function exacto(texto: string): ResultadoPaso {
 
 async function rechazar(phone: string, mensaje: string): Promise<ResultadoPaso> {
   datosPrecalificacionPorTelefono.delete(phone);
+  const descalificadoOk = await actualizarLeadPorConversacion(phone, {
+    estado: "descalificado",
+  });
+  if (!descalificadoOk) {
+    console.error("[lead] Error marcando lead descalificado:", { phone });
+  }
   await setConversation(phone, {
     state: "finalizado",
     name: null,

@@ -350,10 +350,8 @@ describe("botSteps memoria Map", () => {
     await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
     const reply = await procesarYEvolucionar({ phone: p, textoUsuario: "no" });
 
-    expect(reply).toContain("relación laboral vigente en Nuevo León");
-    expect(reply).not.toContain(
-      "Para revisar si puedes continuar con tu trámite",
-    );
+    expect(reply).toContain("trabajadores activos en Nuevo León");
+    expect(reply).not.toContain("Un asesor se pondrá en contacto");
   });
 
   it("reinicia el flujo con comando reiniciar en cualquier paso", async () => {
@@ -429,6 +427,6 @@ describe("botSteps memoria Map", () => {
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     const reply = await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
 
-    expect(reply).toContain("termines de pagar tu crédito Infonavit");
+    expect(reply).toContain("no aplica si ya tienes un crédito Infonavit activo");
   });
 });

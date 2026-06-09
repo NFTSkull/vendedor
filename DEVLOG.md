@@ -1,5 +1,11 @@
 # DEVLOG
 
+## 2026-06-05 (re-engagement automático)
+
+- `supabase/sql/leads_reengagement.sql`: columnas `reengagement_1_sent_at` y `reengagement_2_sent_at` en `leads`.
+- `vercel.json`: cron `* * * * *` → `/api/cron/reengagement`.
+- `lib/reengagement.ts` + `app/api/cron/reengagement/route.ts`: leads `estado=nuevo`, ventanas 5–6 min (toque 1) y 20–21 min (toque 2) desde último mensaje entrante; mensajes por `conversations.state`; guarda saliente en `messages`; auth `x-vercel-cron` o `Bearer CRON_SECRET`; omite si `leads.updated_at` < 2 min.
+
 ## 2026-06-05 (backfill montos precalificación)
 
 - `scripts/backfill-montos.ts`: backfill manual para leads con `nss` y `saldo_subcuenta` null; consulta/actualiza vía PostgREST (`fetch`) para evitar dependencia de WebSocket en Node 20; POST a scraper con `{ nss, workerIndex }` igual que `botStepsCore`; en éxito persiste montos; si no califica intenta `estado_precalificacion=no_califica` (solo log si la columna no existe). Delay 20s entre NSS.

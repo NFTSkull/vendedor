@@ -1,5 +1,11 @@
 # Changelog
 
+## [Sin versión semver] — 2026-06-05 (continuación)
+
+### Cambio actual
+
+- **Re-engagement automático (Vercel Cron):** `vercel.json` ejecuta `GET /api/cron/reengagement` cada minuto; toques a 5 y 20 min sin respuesta del usuario en leads `nuevo`, mensajes según `conversations.state`, columnas `reengagement_1_sent_at` / `reengagement_2_sent_at` en `leads`.
+
 ## [Sin versión semver] — 2026-06-05
 
 ### Cambio actual
