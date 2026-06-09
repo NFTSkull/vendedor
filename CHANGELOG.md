@@ -1,5 +1,11 @@
 # Changelog
 
+## [Sin versión semver] — 2026-06-05 (continuación II)
+
+### Cambio actual
+
+- **Bot — cierre y opt-out:** detección de desinterés (`no_interesado`), scraper no califica cierra como `descalificado`, mensaje final con horario y teléfono 8140100246 sin Claude en `finalizado`.
+
 ## [Sin versión semver] — 2026-06-05 (continuación)
 
 ### Cambio actual

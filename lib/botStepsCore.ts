@@ -9,7 +9,13 @@ import {
 } from "@/lib/leadProvisional";
 import { buscarLeadPorTelefono } from "@/lib/messagesDb";
 import { extraerNssOnceDigitos } from "@/lib/nss";
-import { esAfirmativo, esComandoReinicio, esNegativo } from "@/lib/normalizeText";
+import {
+  esAfirmativo,
+  esComandoReinicio,
+  esNegativo,
+  normalizarTexto,
+} from "@/lib/normalizeText";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type BotState =
   | "inicio"
@@ -53,8 +59,24 @@ export const MSG_MONTO_Y_HORARIO =
 export const MSG_FINAL =
   "Gracias. Un asesor se pondrá en contacto contigo en el horario que nos indicaste.";
 
-export const MSG_FINALIZADO_POST =
-  "Un asesor se pondrá en contacto contigo pronto. ";
+const MSG_NO_CALIFICA_SCRAPER =
+  "Lo sentimos, en este momento no calificas para el crédito Mejoravit. " +
+  "Si tienes dudas, puedes escribirnos cuando gustes.";
+
+const MSG_OPT_OUT =
+  "Entendido, no te molestaremos más. Si en algún momento cambias de opinión, con gusto te ayudamos 😊";
+
+const FRASES_OPT_OUT = [
+  "no me interesa",
+  "ya no",
+  "no gracias",
+  "adios",
+  "hasta luego",
+  "no quiero",
+  "dejame",
+  "no por favor",
+  "cancela",
+] as const;
 
 const MSG_NSS_INVALIDO =
   "Necesito un número de seguro social (IMSS) de 11 dígitos. Intenta de nuevo.\n\n" +
@@ -184,6 +206,65 @@ function exacto(texto: string): ResultadoPaso {
   return { texto, exacto: true };
 }
 
+export function esOptOut(texto: string): boolean {
+  const n = normalizarTexto(texto);
+  if (!n) return false;
+  return FRASES_OPT_OUT.some((frase) => n.includes(frase));
+}
+
+export function mensajeFinalizadoPost(horario: string): string {
+  const h = horario.trim();
+  if (h) {
+    return `Listo, un asesor te contactará ${h}. Si necesitas algo más llama al 8140100246.`;
+  }
+  return "Un asesor te contactará pronto. Si necesitas algo más llama al 8140100246.";
+}
+
+async function resolverHorarioParaMensaje(
+  phone: string,
+  data?: Record<string, unknown>,
+): Promise<string> {
+  const desdeData = horarioGuardadoEnConversacion(data);
+  if (desdeData.trim()) return desdeData.trim();
+
+  const conv = await getConversation(phone);
+  const desdeConv = horarioGuardadoEnConversacion(conv.data);
+  if (desdeConv.trim()) return desdeConv.trim();
+
+  const leadId =
+    conv.lead_id ?? (await buscarLeadPorTelefono(phone))?.id ?? null;
+  if (!leadId) return "";
+
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data: lead } = await supabase
+      .from("leads")
+      .select("horario")
+      .eq("id", leadId)
+      .maybeSingle();
+    return typeof lead?.horario === "string" ? lead.horario.trim() : "";
+  } catch (err) {
+    console.error("[lead] Error leyendo horario:", err);
+    return "";
+  }
+}
+
+async function manejarOptOut(phone: string): Promise<ResultadoPaso> {
+  datosPrecalificacionPorTelefono.delete(phone);
+  const ok = await actualizarLeadPorConversacion(phone, {
+    estado: "no_interesado",
+  });
+  if (!ok) {
+    console.error("[lead] Error marcando lead no_interesado:", { phone });
+  }
+  await setConversation(phone, {
+    state: "finalizado",
+    name: null,
+    nss: null,
+  });
+  return exacto(MSG_OPT_OUT);
+}
+
 async function rechazar(phone: string, mensaje: string): Promise<ResultadoPaso> {
   datosPrecalificacionPorTelefono.delete(phone);
   const descalificadoOk = await actualizarLeadPorConversacion(phone, {
@@ -289,9 +370,14 @@ export async function ejecutarPasoCore(args: {
   const row = await getConversation(phone);
   const state = row.state as BotState;
 
+  if (state !== "inicio" && esOptOut(texto)) {
+    return manejarOptOut(phone);
+  }
+
   switch (state) {
     case "finalizado": {
-      return exacto(MSG_FINALIZADO_POST);
+      const horario = await resolverHorarioParaMensaje(phone, row.data);
+      return exacto(mensajeFinalizadoPost(horario));
     }
     case "inicio":
       await ensureLeadProvisional(phone);
@@ -419,15 +505,12 @@ export async function ejecutarPasoCore(args: {
             name: null,
             nss: null,
           });
-          return exacto(
-            `${mensajeMontoAutorizado(saldoSubcuenta)}\n\n${MSG_FINALIZADO_POST}`,
-          );
+          const cierre = mensajeFinalizadoPost(horario);
+          return exacto(`${mensajeMontoAutorizado(saldoSubcuenta)}\n\n${cierre}`);
         }
 
         if (resultado.success === false || resultado.califica === false) {
-          return exacto(
-            "Lo sentimos, en este momento no calificas para el crédito Mejoravit. Si tienes dudas, uno de nuestros asesores puede orientarte. ¿Te gustaría que te contactemos?",
-          );
+          return rechazar(phone, MSG_NO_CALIFICA_SCRAPER);
         }
 
         return exacto(MSG_REINTENTO_PRECIFICACION);

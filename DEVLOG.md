@@ -1,5 +1,9 @@
 # DEVLOG
 
+## 2026-06-05 (opt-out, no califica y cierre con horario)
+
+- `lib/botStepsCore.ts`: `esOptOut()` antes del switch (excepto `inicio`) → `no_interesado` + `finalizado`; scraper `no califica` usa `rechazar()` (`descalificado`); `mensajeFinalizadoPost(horario)` con 8140100246; estado `finalizado` sin Claude vía `botSteps.ts` (retorno directo).
+
 ## 2026-06-05 (re-engagement automático)
 
 - `supabase/sql/leads_reengagement.sql`: columnas `reengagement_1_sent_at` y `reengagement_2_sent_at` en `leads`.

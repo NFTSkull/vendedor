@@ -52,6 +52,7 @@ function makeLeadsSelect() {
             id: val,
             whatsapp_phone: row.whatsapp_phone,
             estado: (row.estado as string) ?? "nuevo",
+            horario: row.horario ?? null,
           },
           error: null,
         };
@@ -238,8 +239,8 @@ describe("botSteps memoria Map", () => {
       expect(reply).toBeTruthy();
     }
 
-    expect(reply).toContain("Un asesor se pondrá en contacto contigo pronto");
-    expect(reply).not.toContain("8140100246");
+    expect(reply).toContain("Listo, un asesor te contactará Martes 10am");
+    expect(reply).toContain("8140100246");
     expect(reply).not.toContain("8114118767");
 
     expect(logSpy).toHaveBeenCalledWith("[lead confirmado]", {
@@ -279,7 +280,8 @@ describe("botSteps memoria Map", () => {
 
     expect(reply).toContain("Tu monto autorizado es:");
     expect(reply).toContain("$100,000");
-    expect(reply).toContain("Un asesor se pondrá en contacto contigo pronto");
+    expect(reply).toContain("Listo, un asesor te contactará Martes 10am");
+    expect(reply).toContain("8140100246");
     expect(reply).not.toContain("día y horario");
   });
 
@@ -343,6 +345,56 @@ describe("botSteps memoria Map", () => {
     expect(reply).not.toContain("problema");
     expect(reply).not.toContain("error");
     expect(conversationMemory.get(p)?.state).toBe("esperando_datos");
+  });
+
+  it("marca no_interesado ante opt-out explícito", async () => {
+    const p = "5231313131313";
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    const reply = await procesarYEvolucionar({
+      phone: p,
+      textoUsuario: "no me interesa",
+    });
+
+    expect(reply).toContain("no te molestaremos más");
+    expect(conversationMemory.get(p)?.state).toBe("finalizado");
+    expect(
+      leadsUpdateRows.some((u) => u.patch.estado === "no_interesado"),
+    ).toBe(true);
+  });
+
+  it("marca descalificado cuando el scraper indica no califica", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/precalificar")) {
+          return new Response(
+            JSON.stringify({ success: false, califica: false }),
+            { status: 200 },
+          );
+        }
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    const p = "5222222222222";
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Martes 10am" });
+
+    const reply = await procesarYEvolucionar({
+      phone: p,
+      textoUsuario: "12345678901",
+    });
+
+    expect(reply).toContain("no calificas para el crédito Mejoravit");
+    expect(conversationMemory.get(p)?.state).toBe("finalizado");
+    expect(
+      leadsUpdateRows.some((u) => u.patch.estado === "descalificado"),
+    ).toBe(true);
   });
 
   it("rechaza sin relación laboral vigente", async () => {
