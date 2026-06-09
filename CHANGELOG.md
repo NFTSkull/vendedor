@@ -1,5 +1,11 @@
 # Changelog
 
+## [Sin versión semver] — 2026-06-05
+
+### Cambio actual
+
+- **Backfill montos precalificación:** `scripts/backfill-montos.ts` (local) y `POST /api/admin/backfill-montos` (temporal, auth con `CRM_JWT_SECRET`) consultan leads con NSS y sin `saldo_subcuenta`, llaman al scraper como el bot y actualizan montos o marcan `no_califica`; ejecutan un NSS cada 20s.
+
 ## [Sin versión semver] — 2026-05-29 (continuación)
 
 ### Cambio actual

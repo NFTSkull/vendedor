@@ -1,5 +1,10 @@
 # DEVLOG
 
+## 2026-06-05 (backfill montos precalificación)
+
+- `scripts/backfill-montos.ts`: backfill manual para leads con `nss` y `saldo_subcuenta` null; consulta/actualiza vía PostgREST (`fetch`) para evitar dependencia de WebSocket en Node 20; POST a scraper con `{ nss, workerIndex }` igual que `botStepsCore`; en éxito persiste montos; si no califica intenta `estado_precalificacion=no_califica` (solo log si la columna no existe). Delay 20s entre NSS.
+- `app/api/admin/backfill-montos/route.ts`: mismo flujo expuesto en Vercel con `Authorization: Bearer {CRM_JWT_SECRET}`; `maxDuration=300`; respuesta JSON con resultado por NSS.
+
 ## 2026-05-29 (bot monto exacto)
 
 - `lib/botStepsCore.ts`: mensaje post-NSS usa `montoCredito` del scraper (`Tu monto autorizado es: $X`); sin rango 80%–85%. Persistencia en lead: `monto_credito`, `monto_aprobado_min/max` = mismo valor.
