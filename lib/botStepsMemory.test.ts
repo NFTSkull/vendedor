@@ -5,7 +5,12 @@ import { conversationMemory } from "@/lib/conversationMemory";
 
 const conversationsStore = new Map<
   string,
-  { state: string; nss: string | null; lead_id: string | null }
+  {
+    state: string;
+    nss: string | null;
+    lead_id: string | null;
+    data?: Record<string, unknown>;
+  }
 >();
 const leadsById = new Map<string, Record<string, unknown>>();
 const leadsByPhone = new Map<string, string>();
@@ -89,10 +94,20 @@ vi.mock("@/lib/supabaseAdmin", () => ({
         return {
           select: () => ({
             eq: (_col: string, phone: string) => ({
-              maybeSingle: async () => ({
-                data: conversationsStore.get(phone) ?? null,
-                error: null,
-              }),
+              maybeSingle: async () => {
+                const stored = conversationsStore.get(phone);
+                return {
+                  data: stored
+                    ? {
+                        state: stored.state,
+                        nss: stored.nss,
+                        lead_id: stored.lead_id,
+                        data: stored.data ?? null,
+                      }
+                    : null,
+                  error: null,
+                };
+              },
             }),
           }),
           upsert: async (row: {
@@ -100,6 +115,7 @@ vi.mock("@/lib/supabaseAdmin", () => ({
             state: string;
             nss: string | null;
             lead_id?: string | null;
+            data?: Record<string, unknown>;
           }) => {
             const prev = conversationsStore.get(row.whatsapp_phone);
             conversationsStore.set(row.whatsapp_phone, {
@@ -107,6 +123,10 @@ vi.mock("@/lib/supabaseAdmin", () => ({
               nss: row.nss,
               lead_id:
                 row.lead_id !== undefined ? row.lead_id : (prev?.lead_id ?? null),
+              data:
+                row.data !== undefined
+                  ? row.data
+                  : prev?.data,
             });
             return { error: null };
           },
@@ -128,8 +148,8 @@ const FLUJO_SI = [
   "si",
   "SI",
   "no",
-  "12345678901",
   "Martes 10am",
+  "12345678901",
 ] as const;
 
 describe("botSteps memoria Map", () => {
@@ -199,7 +219,10 @@ describe("botSteps memoria Map", () => {
       phone: p,
       nss: "12345678901",
       horario: "Martes 10am",
+      lead_id: "lead-1",
     });
+    expect(leadsUpdateRows.some((u) => u.patch.nss === "12345678901")).toBe(true);
+    expect(leadsUpdateRows.some((u) => u.patch.horario === "Martes 10am")).toBe(true);
 
     logSpy.mockRestore();
   });
@@ -215,7 +238,7 @@ describe("botSteps memoria Map", () => {
       expect(reply).toBeTruthy();
     }
 
-    expect(reply).toContain("Un asesor se pondrá en contacto contigo");
+    expect(reply).toContain("Un asesor se pondrá en contacto contigo pronto");
     expect(reply).not.toContain("8140100246");
     expect(reply).not.toContain("8114118767");
 
@@ -223,6 +246,7 @@ describe("botSteps memoria Map", () => {
       phone: p,
       name: null,
       nss: "12345678901",
+      lead_id: "lead-1",
     });
 
     const ultimaActualizacion = leadsUpdateRows[leadsUpdateRows.length - 1];
@@ -240,12 +264,13 @@ describe("botSteps memoria Map", () => {
     logSpy.mockRestore();
   });
 
-  it("consulta scraper y muestra monto exacto antes de pedir horario", async () => {
+  it("consulta scraper y muestra monto exacto al cerrar el flujo", async () => {
     const p = "5233333333333";
     await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Martes 10am" });
 
     const reply = await procesarYEvolucionar({
       phone: p,
@@ -254,8 +279,8 @@ describe("botSteps memoria Map", () => {
 
     expect(reply).toContain("Tu monto autorizado es:");
     expect(reply).toContain("$100,000");
-    expect(reply).not.toContain(" a ");
-    expect(reply).toContain("día y horario");
+    expect(reply).toContain("Un asesor se pondrá en contacto contigo pronto");
+    expect(reply).not.toContain("día y horario");
   });
 
   it("pide reingresar NSS cuando la precalificación no devuelve datos válidos", async () => {
@@ -277,6 +302,7 @@ describe("botSteps memoria Map", () => {
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Martes 10am" });
 
     const reply = await procesarYEvolucionar({
       phone: p,
@@ -306,6 +332,7 @@ describe("botSteps memoria Map", () => {
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Martes 10am" });
 
     const reply = await procesarYEvolucionar({
       phone: p,
@@ -365,6 +392,7 @@ describe("botSteps memoria Map", () => {
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Martes 10am" });
 
     const reply = await procesarYEvolucionar({
       phone: p,
@@ -373,7 +401,7 @@ describe("botSteps memoria Map", () => {
 
     expect(reply).toContain("Tu monto autorizado es:");
     expect(reply).toContain("$100,000");
-    expect(conversationMemory.get(p)?.nss).toBe("01234567890");
+    expect(conversationMemory.get(p)?.state).toBe("finalizado");
   });
 
   it("rechaza NSS cuando trae más de 11 dígitos", async () => {
@@ -382,6 +410,7 @@ describe("botSteps memoria Map", () => {
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
     await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Martes 10am" });
 
     const reply = await procesarYEvolucionar({
       phone: p,

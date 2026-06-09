@@ -2,6 +2,7 @@ import {
   claudeDisponible,
   interpretarRespuestaUsuario,
   limpiarHistorialClaude,
+  limpiarMarkdown,
   naturalizarMensajeBot,
   type InterpretacionUsuario,
 } from "@/lib/claudeAssistant";
@@ -61,13 +62,15 @@ async function aplicarClaudeSalida(
   contextoPaso: string,
 ): Promise<string> {
   if (resultado.exacto || !claudeDisponible()) {
-    return resultado.texto;
+    return limpiarMarkdown(resultado.texto);
   }
-  return naturalizarMensajeBot({
-    phone,
-    mensajeBase: resultado.texto,
-    contextoPaso,
-  });
+  return limpiarMarkdown(
+    await naturalizarMensajeBot({
+      phone,
+      mensajeBase: resultado.texto,
+      contextoPaso,
+    }),
+  );
 }
 
 /**
@@ -109,6 +112,14 @@ export async function procesarYEvolucionar(args: {
     return resultadoInicio.texto;
   }
 
+  if (estadoActual === "finalizado") {
+    const resultado = await ejecutarPasoCore({
+      phone,
+      textoUsuario: texto,
+    });
+    return resultado.texto;
+  }
+
   const state = estadoActual;
   const statePregunta = estadoParaPregunta(state);
   console.log("[FLUJO] estado:", state, "texto:", texto);
@@ -130,8 +141,10 @@ export async function procesarYEvolucionar(args: {
     });
     console.log("[FLUJO] interpretacion Claude:", interp?.tipo);
 
-    if (interp?.tipo === "fuera_tema" && interp.respuestaRetomo) {
-      return interp.respuestaRetomo;
+    if (interp?.tipo === "fuera_tema") {
+      return limpiarMarkdown(
+        interp.respuestaRetomo ?? preguntaDelEstado(statePregunta),
+      );
     }
 
     if (interp?.tipo === "reiniciar") {
@@ -140,7 +153,20 @@ export async function procesarYEvolucionar(args: {
       return reinicio.texto;
     }
 
-    if (interp && interp.tipo !== "invalido") {
+    if (
+      interp?.tipo === "ambiguo" ||
+      interp?.tipo === "invalido"
+    ) {
+      return preguntaDelEstado(statePregunta);
+    }
+
+    if (
+      interp &&
+      (interp.tipo === "si" ||
+        interp.tipo === "no" ||
+        interp.tipo === "nss" ||
+        interp.tipo === "horario")
+    ) {
       entrada = interpretacionAEntrada(interp);
     }
   }
@@ -152,40 +178,6 @@ export async function procesarYEvolucionar(args: {
     textoUsuario: texto,
     entrada,
   });
-
-  if (resultado.texto === "__POST_FLUJO__") {
-    try {
-      const Anthropic = (await import("@anthropic-ai/sdk")).default;
-      const client = new Anthropic({
-        apiKey: process.env.ANTHROPIC_API_KEY,
-      });
-      const response = await client.messages.create({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 200,
-        messages: [
-          {
-            role: "user",
-            content: `El usuario completó el registro de Mejoravit y escribió: "${texto}". 
-Responde en máximo 2 líneas, tono profesional, sin emojis:
-- Si agradece → responde cordialmente
-- Si pregunta cuándo le contactan → pronto en el horario indicado
-- Si pregunta dónde están → Monterrey, Nuevo León  
-- Si pregunta qué es Mejoravit → crédito de mejora del hogar con Infonavit
-- Si pregunta algo más → responde brevemente, el asesor aclarará
-- Si se despide → despídete cordialmente
-NUNCA reinicies el flujo.`,
-          },
-        ],
-      });
-      const respuesta = response.content
-        .filter((b) => b.type === "text")
-        .map((b) => b.text)
-        .join("");
-      return respuesta || "Con gusto. Un asesor le contactará pronto.";
-    } catch {
-      return "Con gusto. Un asesor se pondrá en contacto contigo pronto.";
-    }
-  }
 
   const contexto = await estadoActivo(phone);
   return aplicarClaudeSalida(phone, resultado, contexto);

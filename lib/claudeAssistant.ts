@@ -40,7 +40,14 @@ IMPORTANTE:
 - Nunca uses emojis
 - Respuestas profesionales y cordiales
 - Máximo 2 líneas cuando respondas fuera de tema
-- Siempre termina retomando la pregunta actual con texto exacto`;
+- Siempre termina retomando la pregunta actual con texto exacto
+- Responde en texto plano sin markdown, sin asteriscos, sin símbolos de formato`;
+
+export function limpiarMarkdown(texto: string): string {
+  return texto
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1");
+}
 
 const MODELO = "claude-haiku-4-5-20251001";
 const MAX_HISTORIAL = 12;
@@ -176,7 +183,9 @@ Reglas:
     return {
       tipo: parsed.tipo,
       nss: parsed.nss ?? null,
-      respuestaRetomo: parsed.respuestaRetomo,
+      respuestaRetomo: parsed.respuestaRetomo
+        ? limpiarMarkdown(parsed.respuestaRetomo)
+        : undefined,
     };
   } catch (err) {
     console.error("[claude interpretar]", err);
@@ -206,7 +215,8 @@ Mensaje base:
 ${args.mensajeBase}
 """
 
-Responde SOLO con el texto final para el usuario, sin comillas ni JSON.`;
+Responde SOLO con el texto final para el usuario, sin comillas ni JSON.
+Usa texto plano sin markdown, sin asteriscos, sin símbolos de formato.`;
 
   try {
     const historial = historialClaude.get(args.phone) ?? [];
@@ -220,7 +230,7 @@ Responde SOLO con el texto final para el usuario, sin comillas ni JSON.`;
     const bloque = res.content.find((b) => b.type === "text");
     if (!bloque || bloque.type !== "text") return args.mensajeBase;
 
-    const natural = bloque.text.trim();
+    const natural = limpiarMarkdown(bloque.text.trim());
     if (!natural) return args.mensajeBase;
 
     pushHistorial(args.phone, "assistant", natural);

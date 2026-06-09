@@ -7,9 +7,9 @@ import {
   actualizarLeadPorConversacion,
   ensureLeadProvisional,
 } from "@/lib/leadProvisional";
+import { buscarLeadPorTelefono } from "@/lib/messagesDb";
 import { extraerNssOnceDigitos } from "@/lib/nss";
 import { esAfirmativo, esComandoReinicio, esNegativo } from "@/lib/normalizeText";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type BotState =
   | "inicio"
@@ -54,6 +54,9 @@ export const MSG_MONTO_Y_HORARIO =
 export const MSG_FINAL =
   "Gracias. Un asesor se pondrá en contacto contigo en el horario que nos indicaste.";
 
+export const MSG_FINALIZADO_POST =
+  "Un asesor se pondrá en contacto contigo pronto. ";
+
 const MSG_NSS_INVALIDO =
   "Necesito un número de seguro social (IMSS) de 11 dígitos. Intenta de nuevo.\n\n" +
   MSG_SOLICITUD_DATOS;
@@ -82,11 +85,14 @@ function extraerSaldoSubcuenta(resultado: RespuestaScraper): number {
   return parseNumero(resultado.datos?.saldoSubcuenta);
 }
 
-function mensajeMontoAutorizadoYHorario(saldoSubcuenta: number): string {
-  return (
-    `Tu monto autorizado es:\n${formatMoneda(saldoSubcuenta)} 🏠\n` +
-    "¿En qué día y horario te podemos contactar?"
-  );
+function mensajeMontoAutorizado(saldoSubcuenta: number): string {
+  return `Tu monto autorizado es:\n${formatMoneda(saldoSubcuenta)} 🏠`;
+}
+
+function horarioGuardadoEnConversacion(
+  data: Record<string, unknown> | undefined,
+): string {
+  return typeof data?.horario === "string" ? data.horario : "";
 }
 
 const datosPrecalificacionPorTelefono = new Map<
@@ -203,6 +209,22 @@ async function responderSiNoCore(
   return reintento;
 }
 
+async function resolverLeadId(phone: string): Promise<string | null> {
+  const conv = await getConversation(phone);
+  if (conv.lead_id) return conv.lead_id;
+
+  const existing = await buscarLeadPorTelefono(phone);
+  if (existing) {
+    await setConversation(phone, {
+      state: conv.state,
+      lead_id: existing.id,
+    });
+    return existing.id;
+  }
+
+  return ensureLeadProvisional(phone);
+}
+
 async function guardarLead(
   phone: string,
   nss: string,
@@ -224,46 +246,17 @@ async function guardarLead(
     }
   }
 
-  const conv = await getConversation(phone);
-  if (!conv.lead_id) {
-    try {
-      const supabase = getSupabaseAdmin();
-      const { data, error } = await supabase
-        .from("leads")
-        .insert({
-          whatsapp_phone: phone,
-          ...leadPayload,
-        })
-        .select("id")
-        .single();
-
-      if (error || !data?.id) {
-        console.error("[Supabase] Error guardando lead (fallback insert):", {
-          phone,
-          nss,
-          horario,
-          error,
-        });
-        return;
-      }
-
-      await setConversation(phone, {
-        state: conv.state,
-        lead_id: data.id,
-      });
-      console.log("[Supabase] Lead guardado (fallback insert):", { phone, nss, horario });
-      return;
-    } catch (err) {
-      console.error("[Supabase] Error guardando lead (fallback insert):", err);
-      return;
-    }
+  const leadId = await resolverLeadId(phone);
+  if (!leadId) {
+    console.error("[lead] No se pudo resolver lead_id:", { phone, nss, horario });
+    return;
   }
 
   const ok = await actualizarLeadPorConversacion(phone, leadPayload);
   if (!ok) {
-    console.error("[Supabase] Error actualizando lead:", { phone, nss, horario });
+    console.error("[Supabase] Error actualizando lead:", { phone, nss, horario, lead_id: leadId });
   } else {
-    console.log("[Supabase] Lead actualizado:", { phone, nss, horario });
+    console.log("[Supabase] Lead actualizado:", { phone, nss, horario, lead_id: leadId });
   }
 }
 
@@ -293,7 +286,7 @@ export async function ejecutarPasoCore(args: {
 
   switch (state) {
     case "finalizado": {
-      return { texto: "__POST_FLUJO__", exacto: true };
+      return exacto(MSG_FINALIZADO_POST);
     }
     case "inicio":
       await ensureLeadProvisional(phone);
@@ -340,11 +333,11 @@ export async function ejecutarPasoCore(args: {
         async () => rechazar(phone, MSG_RECHAZO_CREDITO_ACTIVO),
         async () => {
           await setConversation(phone, {
-            state: "esperando_datos",
+            state: "esperando_horario",
             name: null,
             nss: null,
           });
-          return exacto(MSG_SOLICITUD_DATOS);
+          return exacto(MSG_MONTO_Y_HORARIO);
         },
         exacto(MSG_CREDITO_ACTIVO),
       );
@@ -358,6 +351,17 @@ export async function ejecutarPasoCore(args: {
       if (!nss) {
         return exacto(MSG_NSS_INVALIDO);
       }
+
+      const leadIdNss = await resolverLeadId(phone);
+      const nssOk = await actualizarLeadPorConversacion(phone, { nss });
+      if (!nssOk) {
+        console.error("[lead] Error guardando NSS:", {
+          phone,
+          nss,
+          lead_id: leadIdNss,
+        });
+      }
+
       await setConversation(phone, {
         state: "esperando_datos",
         name: null,
@@ -368,6 +372,7 @@ export async function ejecutarPasoCore(args: {
         phone,
         name: null,
         nss,
+        lead_id: leadIdNss,
       });
       try {
         const resultado = await consultarPrecalificacionScraper(nss);
@@ -377,18 +382,41 @@ export async function ejecutarPasoCore(args: {
           resultado.datos?.montoCredito ?? resultado.montoCredito;
         const success = resultado.success === true || resultado.califica === true;
         if (success && saldoSubcuenta > 0 && saldoSubcuentaRaw !== undefined) {
-          datosPrecalificacionPorTelefono.set(phone, {
+          const datosPrecalificacion = {
             saldoSubcuentaRaw,
             saldoSubcuenta,
             montoCreditoRaw,
+          };
+          datosPrecalificacionPorTelefono.set(phone, datosPrecalificacion);
+          const horario = horarioGuardadoEnConversacion(row.data);
+          const leadIdMontos = await resolverLeadId(phone);
+          const montosPayload = {
+            saldo_subcuenta: saldoSubcuentaRaw,
+            monto_base: saldoSubcuenta,
+            monto_aprobado_min: saldoSubcuenta,
+            monto_aprobado_max: saldoSubcuenta,
+          };
+          console.log("[lead] Actualizando montos:", {
+            ...montosPayload,
+            lead_id: leadIdMontos,
           });
-          await actualizarLeadPorConversacion(phone, { nss });
+          const montosOk = await actualizarLeadPorConversacion(phone, montosPayload);
+          if (!montosOk) {
+            console.error("[lead] Error guardando montos:", {
+              phone,
+              lead_id: leadIdMontos,
+            });
+          }
+          await guardarLead(phone, nss, horario, datosPrecalificacion);
+          datosPrecalificacionPorTelefono.delete(phone);
           await setConversation(phone, {
-            state: "esperando_horario",
+            state: "finalizado",
             name: null,
-            nss,
+            nss: null,
           });
-          return exacto(mensajeMontoAutorizadoYHorario(saldoSubcuenta));
+          return exacto(
+            `${mensajeMontoAutorizado(saldoSubcuenta)}\n\n${MSG_FINALIZADO_POST}`,
+          );
         }
 
         if (resultado.success === false || resultado.califica === false) {
@@ -403,9 +431,6 @@ export async function ejecutarPasoCore(args: {
       }
     }
     case "esperando_horario": {
-      if (!row.nss) {
-        return await reiniciarFlujoCore(phone);
-      }
       const horarioValido =
         entrada?.esHorarioValido === true || texto.length >= 3;
       if (!horarioValido) {
@@ -414,16 +439,24 @@ export async function ejecutarPasoCore(args: {
             MSG_MONTO_Y_HORARIO,
         );
       }
-      const datosPrecalificacion = datosPrecalificacionPorTelefono.get(phone);
-      await guardarLead(phone, row.nss, texto, datosPrecalificacion);
-      datosPrecalificacionPorTelefono.delete(phone);
+      const leadIdHorario = await resolverLeadId(phone);
+      console.log("[lead] Actualizando horario:", texto, "lead_id:", leadIdHorario);
+      const horarioOk = await actualizarLeadPorConversacion(phone, { horario: texto });
+      if (!horarioOk) {
+        console.error("[lead] Error guardando horario:", {
+          phone,
+          horario: texto,
+          lead_id: leadIdHorario,
+        });
+      }
 
       await setConversation(phone, {
-        state: "finalizado",
+        state: "esperando_datos",
         name: null,
         nss: null,
+        data: { ...(row.data ?? {}), horario: texto },
       });
-      return exacto(MSG_FINAL);
+      return exacto(MSG_SOLICITUD_DATOS);
     }
     default:
       return await reiniciarFlujoCore(phone);

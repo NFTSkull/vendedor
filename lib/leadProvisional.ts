@@ -79,7 +79,17 @@ export async function actualizarLeadPorConversacion(
   campos: Record<string, unknown>,
 ): Promise<boolean> {
   const conv = await getConversation(phone);
-  const leadId = conv.lead_id ?? (await ensureLeadProvisional(phone));
+  let leadId = conv.lead_id;
+  if (!leadId) {
+    const existing = await buscarLeadPorTelefono(phone);
+    if (existing) {
+      leadId = existing.id;
+      await setConversation(phone, { state: conv.state, lead_id: leadId });
+    }
+  }
+  if (!leadId) {
+    leadId = await ensureLeadProvisional(phone);
+  }
   if (!leadId) return false;
 
   try {
