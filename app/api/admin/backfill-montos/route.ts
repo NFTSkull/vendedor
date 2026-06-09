@@ -30,6 +30,7 @@ type ResultadoNss = {
     | "error";
   error?: string;
   montos?: {
+    saldo_subcuenta: number | string;
     monto_aprobado_min: number;
     monto_aprobado_max: number;
   };
@@ -240,12 +241,16 @@ async function ejecutarBackfill(): Promise<{
 
       if (success && saldoSubcuenta > 0 && saldoSubcuentaRaw !== undefined) {
         const montos = calcularMontosAprobados(saldoSubcuenta);
-        await actualizarLead(supabaseUrl, supabaseKey, lead.id, montos);
+        const payload = {
+          saldo_subcuenta: saldoSubcuentaRaw,
+          ...montos,
+        };
+        await actualizarLead(supabaseUrl, supabaseKey, lead.id, payload);
 
         resultados.push({
           ...base,
           estado: "montos_actualizados",
-          montos,
+          montos: payload,
         });
       } else if (
         resultado.success === false ||
