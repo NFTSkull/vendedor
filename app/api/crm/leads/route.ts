@@ -12,6 +12,18 @@ export async function GET(req: Request): Promise<Response> {
     const producto = searchParams.get("producto");
 
     const supabase = getSupabaseAdmin();
+
+    const { data: advisor, error: advisorError } = await supabase
+      .from("advisors")
+      .select("email")
+      .eq("id", auth.sub)
+      .maybeSingle();
+
+    if (advisorError) {
+      console.error("[CRM leads GET] Error consultando asesor:", advisorError);
+      return Response.json({ error: "Error interno" }, { status: 500 });
+    }
+
     let query = supabase
       .from("leads")
       .select("*")
@@ -21,7 +33,12 @@ export async function GET(req: Request): Promise<Response> {
       query = query.eq("producto", producto);
     }
 
-    query = query.or(`advisor_id.is.null,advisor_id.eq.${auth.sub}`);
+    const esAdmin = advisor?.email?.toLowerCase() === "admin@mejoravit.com";
+    if (esAdmin) {
+      query = query.is("advisor_id", null);
+    } else {
+      query = query.eq("advisor_id", auth.sub);
+    }
 
     const { data, error } = await query;
 
