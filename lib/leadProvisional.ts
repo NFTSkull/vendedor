@@ -6,6 +6,7 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 export type EnsureLeadProvisionalOptions = {
   phoneNumberId?: string;
   primerMensaje?: string;
+  advisorId?: string | null;
 };
 
 export async function ensureLeadProvisional(
@@ -17,6 +18,9 @@ export async function ensureLeadProvisional(
 
   const existing = await buscarLeadPorTelefono(phone);
   if (existing) {
+    if (options?.advisorId && !existing.advisor_id) {
+      await asignarAdvisorSiVacio(existing.id, options.advisorId);
+    }
     await setConversation(phone, { state: conv.state, lead_id: existing.id });
     return existing.id;
   }
@@ -27,18 +31,24 @@ export async function ensureLeadProvisional(
     "";
   const primerMensaje = options?.primerMensaje ?? "";
   const producto = detectarProducto({ phoneNumberId, primerMensaje });
+  const advisorId = options?.advisorId?.trim() || null;
 
   try {
     const supabase = getSupabaseAdmin();
+    const insertPayload: Record<string, unknown> = {
+      whatsapp_phone: phone,
+      estado: "nuevo",
+      nss: "",
+      horario: "",
+      producto,
+    };
+    if (advisorId) {
+      insertPayload.advisor_id = advisorId;
+    }
+
     const { data, error } = await supabase
       .from("leads")
-      .insert({
-        whatsapp_phone: phone,
-        estado: "nuevo",
-        nss: "",
-        horario: "",
-        producto,
-      })
+      .insert(insertPayload)
       .select("id")
       .single();
 
@@ -66,11 +76,31 @@ export async function ensureLeadProvisional(
       phone,
       leadId: data.id,
       producto,
+      advisorId,
     });
     return data.id;
   } catch (err) {
     console.error("[leadProvisional] Error:", err);
     return null;
+  }
+}
+
+async function asignarAdvisorSiVacio(
+  leadId: string,
+  advisorId: string,
+): Promise<void> {
+  try {
+    const supabase = getSupabaseAdmin();
+    const { error } = await supabase
+      .from("leads")
+      .update({ advisor_id: advisorId })
+      .eq("id", leadId)
+      .is("advisor_id", null);
+    if (error) {
+      console.error("[leadProvisional] Error asignando advisor_id:", error);
+    }
+  } catch (err) {
+    console.error("[leadProvisional] Error asignando advisor_id:", err);
   }
 }
 

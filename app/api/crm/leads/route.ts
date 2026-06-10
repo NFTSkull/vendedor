@@ -21,6 +21,8 @@ export async function GET(req: Request): Promise<Response> {
       query = query.eq("producto", producto);
     }
 
+    query = query.or(`advisor_id.is.null,advisor_id.eq.${auth.sub}`);
+
     const { data, error } = await query;
 
     if (error) {

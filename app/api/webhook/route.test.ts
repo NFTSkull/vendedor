@@ -107,6 +107,7 @@ describe("POST /api/webhook", () => {
     expect(mocks.ensureLeadProvisional).toHaveBeenCalledWith("5215550000000", {
       phoneNumberId: "phone-id",
       primerMensaje: "Hola",
+      advisorId: null,
     });
     expect(mocks.guardarMensaje).toHaveBeenCalledWith({
       leadId: "lead-1",
@@ -288,6 +289,7 @@ describe("POST /api/webhook", () => {
       leadId: "lead-existente",
       telefono: "5215550000000",
       mensaje: "Hola",
+      advisorId: null,
     });
     expect(mocks.procesarYEvolucionar).not.toHaveBeenCalled();
   });

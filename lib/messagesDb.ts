@@ -6,6 +6,7 @@ export type LeadRow = {
   id: string;
   whatsapp_phone: string;
   estado: string;
+  advisor_id?: string | null;
 };
 
 export type MessageRow = {
@@ -22,8 +23,8 @@ export async function buscarLeadPorId(leadId: string): Promise<LeadRow | null> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("leads")
-    .select("id, whatsapp_phone, estado")
-    .eq("id", leadId)
+      .select("id, whatsapp_phone, estado, advisor_id")
+      .eq("id", leadId)
     .maybeSingle();
 
   if (error) {
@@ -40,8 +41,8 @@ export async function buscarLeadPorTelefono(
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("leads")
-    .select("id, whatsapp_phone, estado")
-    .eq("whatsapp_phone", phone)
+      .select("id, whatsapp_phone, estado, advisor_id")
+      .eq("whatsapp_phone", phone)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();

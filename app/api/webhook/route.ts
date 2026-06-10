@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 
 import { procesarYEvolucionar } from "@/lib/botSteps";
 import { getConversation } from "@/lib/conversationMemory";
+import { detectarPrefijoAsesor } from "@/lib/detectarProducto";
 import { ensureLeadProvisional } from "@/lib/leadProvisional";
 import {
   buscarLeadPorId,
@@ -217,10 +218,26 @@ export async function POST(req: NextRequest): Promise<Response> {
 
     console.log("[WEBHOOK_DEBUG] from extraído (parseWhatsAppWebhook):", m.from);
 
+    const convPrefijo = await getConversation(m.from);
+    let textoProcesar = m.body;
+    let advisorIdDetectado: string | null = null;
+    if (convPrefijo.state === "inicio") {
+      const prefijo = detectarPrefijoAsesor(m.body);
+      advisorIdDetectado = prefijo.advisorId;
+      textoProcesar = prefijo.textoLimpio;
+      if (advisorIdDetectado) {
+        console.log("[webhook] Prefijo asesor detectado:", {
+          from: m.from,
+          advisorId: advisorIdDetectado,
+        });
+      }
+    }
+
     const leadAntes = await buscarLeadPorTelefono(m.from);
     await ensureLeadProvisional(m.from, {
       phoneNumberId: resolvedPhoneNumberId,
-      primerMensaje: m.body,
+      primerMensaje: textoProcesar,
+      advisorId: advisorIdDetectado,
     });
     const conversacionLead = await getConversation(m.from);
 
@@ -242,6 +259,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         leadId: leadChat.id,
         telefono: leadChat.whatsapp_phone,
         horario: null,
+        advisorId: leadChat.advisor_id ?? advisorIdDetectado,
       });
     }
 
@@ -277,7 +295,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     async function flushHistorialPendiente(): Promise<void> {
       if (!mensajeEntranteGuardado) {
         try {
-          mensajeEntranteGuardado = await guardarMensajeSiHayLead("entrante", m.body);
+          mensajeEntranteGuardado = await guardarMensajeSiHayLead("entrante", textoProcesar);
         } catch (err) {
           console.error("[webhook] Error guardando mensaje entrante (post-creación):", err);
         }
@@ -296,7 +314,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 
     try {
       if (leadChat) {
-        mensajeEntranteGuardado = await guardarMensajeSiHayLead("entrante", m.body);
+        mensajeEntranteGuardado = await guardarMensajeSiHayLead("entrante", textoProcesar);
       }
     } catch (err) {
       console.error("[webhook] Error guardando mensaje entrante:", err);
@@ -311,7 +329,8 @@ export async function POST(req: NextRequest): Promise<Response> {
         await enviarPushNuevoMensaje({
           leadId: leadChat.id,
           telefono: leadChat.whatsapp_phone,
-          mensaje: m.body,
+          mensaje: textoProcesar,
+          advisorId: leadChat.advisor_id ?? null,
         });
       } catch (err) {
         console.error("[webhook] Error enviando push nuevo mensaje:", err);
@@ -325,7 +344,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     const conversacionAntes = await getConversation(m.from);
     if (
       conversacionAntes.state === "esperando_datos" &&
-      extraerNssOnceDigitos(m.body)
+      extraerNssOnceDigitos(textoProcesar)
     ) {
       const espera = await enviarMensajeTextoWa({
         phoneNumberId: resolvedPhoneNumberId,
@@ -345,7 +364,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 
     const reply = await procesarYEvolucionar({
       phone: m.from,
-      textoUsuario: m.body,
+      textoUsuario: textoProcesar,
     });
 
     if (!reply) {

@@ -1,5 +1,13 @@
 # DEVLOG
 
+## 2026-06-10 (asignación leads G-/B-)
+
+- `supabase/sql/leads_advisor_id.sql`: `leads.advisor_id` → `advisors(id)` (ejecutar en Supabase SQL Editor).
+- Asesores en producción: Guillermo `2d46ad6c-dc1a-4089-81ec-47eb0be7472e`, Bernardo `cf72eace-68a2-457b-b0cc-f30c51bca7aa` (override con `ADVISOR_ID_*` en env).
+- `lib/detectarProducto.ts`: `detectarPrefijoAsesor`; webhook en `inicio` limpia prefijo y pasa `advisorId` a `ensureLeadProvisional`.
+- `app/api/crm/leads/route.ts`: `.or('advisor_id.is.null,advisor_id.eq.{sub}')`.
+- `lib/pushNotifications.ts`: filtra `crm_push_subscriptions` por `advisor_id` del lead cuando existe.
+
 ## 2026-06-05 (flujo NSS→horario y captura con NSS existente)
 
 - Orden corregido: `esperando_credito_activo` (No) → `esperando_datos` → monto → `esperando_horario` → `finalizado`.

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ADVISOR_ID_BERNARDO,
+  ADVISOR_ID_GUILLERMO,
+  detectarPrefijoAsesor,
   detectarProducto,
   ENERGRUM_PHONE_NUMBER_ID,
   MEJORAVIT_PHONE_NUMBER_ID,
@@ -86,5 +89,31 @@ describe("detectarProducto", () => {
         primerMensaje: "energía SOLAR para mi negocio",
       }),
     ).toBe("paneles");
+  });
+});
+
+describe("detectarPrefijoAsesor", () => {
+  it("G-Hola asigna Guillermo y limpia el texto", () => {
+    const r = detectarPrefijoAsesor("G-Hola");
+    expect(r.advisorId).toBe(ADVISOR_ID_GUILLERMO);
+    expect(r.textoLimpio).toBe("Hola");
+  });
+
+  it("b-buenos días asigna Bernardo (case insensitive prefijo)", () => {
+    const r = detectarPrefijoAsesor("b-buenos días");
+    expect(r.advisorId).toBe(ADVISOR_ID_BERNARDO);
+    expect(r.textoLimpio).toBe("buenos días");
+  });
+
+  it("sin prefijo no asigna y conserva el texto", () => {
+    const r = detectarPrefijoAsesor("Hola buenos días");
+    expect(r.advisorId).toBeNull();
+    expect(r.textoLimpio).toBe("Hola buenos días");
+  });
+
+  it("G- solo asigna asesor y deja texto vacío", () => {
+    const r = detectarPrefijoAsesor("G-");
+    expect(r.advisorId).toBe(ADVISOR_ID_GUILLERMO);
+    expect(r.textoLimpio).toBe("");
   });
 });

@@ -1,5 +1,14 @@
 # Changelog
 
+## [Sin versión semver] — 2026-06-10
+
+### Cambio actual
+
+- **Asignación de leads por prefijo:** primer mensaje en estado `inicio` con `G-` o `B-` asigna `advisor_id` (Guillermo/Bernardo); el prefijo se elimina antes del bot.
+- **CRM:** listado filtra leads por asesor (`advisor_id` del JWT o `null` para todos).
+- **Push:** notificaciones de nuevo lead/mensaje solo al asesor asignado, o a todos si no hay asignación.
+- **SQL:** `supabase/sql/leads_advisor_id.sql` — columna `advisor_id` en `leads`.
+
 ## [Sin versión semver] — 2026-06-05 (continuación IV)
 
 ### Cambio actual

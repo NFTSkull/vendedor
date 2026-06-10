@@ -24,19 +24,28 @@ function ensureVapidConfig(): boolean {
   return true;
 }
 
-async function enviarPushPayload(payload: {
-  title: string;
-  body: string;
-  url: string;
-}): Promise<void> {
+async function enviarPushPayload(
+  payload: {
+    title: string;
+    body: string;
+    url: string;
+  },
+  advisorId?: string | null,
+): Promise<void> {
   if (!ensureVapidConfig()) {
     return;
   }
 
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
+  let subsQuery = supabase
     .from("crm_push_subscriptions")
     .select("id, endpoint, p256dh, auth");
+
+  if (advisorId) {
+    subsQuery = subsQuery.eq("advisor_id", advisorId);
+  }
+
+  const { data, error } = await subsQuery;
 
   if (error) {
     console.error("[push] Error listando subscripciones:", error);
@@ -78,23 +87,31 @@ export async function enviarPushNuevoLead(args: {
   leadId: string;
   telefono: string;
   horario: string | null | undefined;
+  advisorId?: string | null;
 }): Promise<void> {
   const horario = args.horario && args.horario.trim() ? args.horario : "Sin horario";
-  await enviarPushPayload({
-    title: "Nuevo lead Mejoravit",
-    body: `Teléfono: ${args.telefono} | Horario: ${horario}`,
-    url: `/crm/leads/${args.leadId}`,
-  });
+  await enviarPushPayload(
+    {
+      title: "Nuevo lead Mejoravit",
+      body: `Teléfono: ${args.telefono} | Horario: ${horario}`,
+      url: `/crm/leads/${args.leadId}`,
+    },
+    args.advisorId,
+  );
 }
 
 export async function enviarPushNuevoMensaje(args: {
   leadId: string;
   telefono: string;
   mensaje: string;
+  advisorId?: string | null;
 }): Promise<void> {
-  await enviarPushPayload({
-    title: `Nuevo mensaje de ${args.telefono}`,
-    body: args.mensaje.trim().slice(0, 60),
-    url: `/crm/leads/${args.leadId}/chat`,
-  });
+  await enviarPushPayload(
+    {
+      title: `Nuevo mensaje de ${args.telefono}`,
+      body: args.mensaje.trim().slice(0, 60),
+      url: `/crm/leads/${args.leadId}/chat`,
+    },
+    args.advisorId,
+  );
 }
