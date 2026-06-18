@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ADVISOR_ID_BERNARDO,
   ADVISOR_ID_GUILLERMO,
+  CONCASA_GENERADORES_PHONE_NUMBER_ID,
   detectarPrefijoAsesor,
   detectarProducto,
   ENERGRUM_PHONE_NUMBER_ID,
@@ -17,6 +18,15 @@ describe("detectarProducto", () => {
         primerMensaje: "quiero paneles solares y generadores",
       }),
     ).toBe("mejoravit");
+  });
+
+  it("Concasa (override temporal) → siempre generadores", () => {
+    expect(
+      detectarProducto({
+        phoneNumberId: CONCASA_GENERADORES_PHONE_NUMBER_ID,
+        primerMensaje: "hola",
+      }),
+    ).toBe("generadores");
   });
 
   it("Energrum + paneles solares → paneles", () => {
