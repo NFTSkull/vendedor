@@ -10,9 +10,9 @@ export const MEJORAVIT_PHONE_NUMBER_ID = "1177472778778882";
 /** Placeholder hasta confirmar phone_number_id de Energrum */
 export const ENERGRUM_PHONE_NUMBER_ID = "ENERGRUM_PENDING";
 
-// === OVERRIDE TEMPORAL: Concasa reutilizado para Generadores ===
-// Para revertir a Mejoravit: borra esta constante y el bloque if asociado.
-export const CONCASA_GENERADORES_PHONE_NUMBER_ID = "1105059976021942";
+// === OVERRIDE TEMPORAL: número Mejoravit redirigido a Generadores ===
+// Para revertir a Mejoravit: borra la constante y el bloque if asociado.
+export const CONCASA_GENERADORES_PHONE_NUMBER_ID = "1177472778778882";
 
 function normalizarTexto(texto: string): string {
   return texto
@@ -45,13 +45,13 @@ export function detectarProducto(args: {
 }): ProductoLead {
   const phoneNumberId = args.phoneNumberId.trim();
 
-  if (phoneNumberId === MEJORAVIT_PHONE_NUMBER_ID) {
-    return "mejoravit";
-  }
-
-  // OVERRIDE TEMPORAL — borrar para devolver el número a Mejoravit
+  // OVERRIDE TEMPORAL — borrar este bloque para devolver el número a Mejoravit
   if (phoneNumberId === CONCASA_GENERADORES_PHONE_NUMBER_ID) {
     return "generadores";
+  }
+
+  if (phoneNumberId === MEJORAVIT_PHONE_NUMBER_ID) {
+    return "mejoravit";
   }
 
   if (phoneNumberId === ENERGRUM_PHONE_NUMBER_ID) {

@@ -11,16 +11,16 @@ import {
 } from "@/lib/detectarProducto";
 
 describe("detectarProducto", () => {
-  it("número Mejoravit → siempre mejoravit sin importar mensaje", () => {
+  it("override temporal Mejoravit (1177472778778882) → generadores", () => {
     expect(
       detectarProducto({
         phoneNumberId: MEJORAVIT_PHONE_NUMBER_ID,
         primerMensaje: "quiero paneles solares y generadores",
       }),
-    ).toBe("mejoravit");
+    ).toBe("generadores");
   });
 
-  it("Concasa (override temporal) → siempre generadores", () => {
+  it("mismo ID vía constante override → generadores", () => {
     expect(
       detectarProducto({
         phoneNumberId: CONCASA_GENERADORES_PHONE_NUMBER_ID,
