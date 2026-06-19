@@ -70,6 +70,11 @@ export const ADVISOR_ID_BERNARDO =
   process.env.ADVISOR_ID_BERNARDO?.trim() ||
   "cf72eace-68a2-457b-b0cc-f30c51bca7aa";
 
+/** Admin CRM (leads sin advisor_id); override con ADVISOR_ID_ADMIN */
+export const ADVISOR_ID_ADMIN =
+  process.env.ADVISOR_ID_ADMIN?.trim() ||
+  "0115fcee-703b-47c6-9c68-acd6eca1aa1a";
+
 export type ResultadoPrefijoAsesor = {
   advisorId: string | null;
   textoLimpio: string;

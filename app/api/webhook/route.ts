@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 
 import { procesarYEvolucionar } from "@/lib/botSteps";
 import { getConversation } from "@/lib/conversationMemory";
-import { detectarPrefijoAsesor } from "@/lib/detectarProducto";
+import { detectarPrefijoAsesor, ADVISOR_ID_ADMIN } from "@/lib/detectarProducto";
 import { ensureLeadProvisional } from "@/lib/leadProvisional";
 import {
   buscarLeadPorId,
@@ -259,7 +259,8 @@ export async function POST(req: NextRequest): Promise<Response> {
         leadId: leadChat.id,
         telefono: leadChat.whatsapp_phone,
         horario: null,
-        advisorId: leadChat.advisor_id ?? advisorIdDetectado,
+        advisorId:
+          leadChat.advisor_id ?? advisorIdDetectado ?? ADVISOR_ID_ADMIN,
       });
     }
 

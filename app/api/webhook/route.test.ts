@@ -56,6 +56,7 @@ vi.mock("@/lib/metaWebhookVerification", () => ({
 }));
 
 import { POST } from "@/app/api/webhook/route";
+import { ADVISOR_ID_ADMIN } from "@/lib/detectarProducto";
 
 describe("POST /api/webhook", () => {
   beforeEach(() => {
@@ -118,6 +119,12 @@ describe("POST /api/webhook", () => {
       leadId: "lead-1",
       direccion: "saliente",
       contenido: "Respuesta del bot",
+    });
+    expect(mocks.enviarPushNuevoLead).toHaveBeenCalledWith({
+      leadId: "lead-1",
+      telefono: "5215550000000",
+      horario: null,
+      advisorId: ADVISOR_ID_ADMIN,
     });
   });
 
