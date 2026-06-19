@@ -14,6 +14,12 @@ export async function ensureLeadProvisional(
   options?: EnsureLeadProvisionalOptions,
 ): Promise<string | null> {
   const conv = await getConversation(phone);
+  const phoneNumberId =
+    options?.phoneNumberId?.trim() ||
+    process.env.WHATSAPP_PHONE_NUMBER_ID?.trim() ||
+    "";
+  const primerMensaje = options?.primerMensaje ?? "";
+
   if (conv.lead_id) return conv.lead_id;
 
   const existing = await buscarLeadPorTelefono(phone);
@@ -21,15 +27,15 @@ export async function ensureLeadProvisional(
     if (options?.advisorId && !existing.advisor_id) {
       await asignarAdvisorSiVacio(existing.id, options.advisorId);
     }
-    await setConversation(phone, { state: conv.state, lead_id: existing.id });
+    const productoDetectado = detectarProducto({ phoneNumberId, primerMensaje });
+    await setConversation(phone, {
+      state: conv.state,
+      lead_id: existing.id,
+      producto: productoDetectado,
+    });
     return existing.id;
   }
 
-  const phoneNumberId =
-    options?.phoneNumberId?.trim() ||
-    process.env.WHATSAPP_PHONE_NUMBER_ID?.trim() ||
-    "";
-  const primerMensaje = options?.primerMensaje ?? "";
   const producto = detectarProducto({ phoneNumberId, primerMensaje });
   const advisorId = options?.advisorId?.trim() || null;
 

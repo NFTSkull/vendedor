@@ -268,3 +268,101 @@ Usa texto plano sin markdown, sin asteriscos, sin símbolos de formato.`;
     return args.mensajeBase;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Generadores Energrum — análisis independiente (no usa SYSTEM_PROMPT Mejoravit)
+// ---------------------------------------------------------------------------
+
+export type InterpretacionGeneradorTipo =
+  | "valida"
+  | "fuera_tema"
+  | "agradece";
+
+export type InterpretacionGenerador = {
+  tipo: InterpretacionGeneradorTipo;
+  valorNormalizado?: string;
+  respuestaRetomo?: string;
+};
+
+export type GenStepClaude = "tipo" | "equipos" | "horario";
+
+const SYSTEM_PROMPT_GENERADORES = `Eres el asistente de Energrum en WhatsApp, calificando interés en generadores eléctricos. Tu trabajo es analizar la respuesta del cliente a UNA pregunta específica del flujo y clasificarla. NUNCA cambias la pregunta del flujo.
+
+Clasifica en uno de estos tipos:
+- "valida": el cliente respondió la pregunta actual de forma utilizable. Devuelve "valorNormalizado" con la respuesta limpia.
+- "fuera_tema": el cliente hizo una pregunta (precio, tiempos, dudas) o habló de algo no relacionado. Devuelve "respuestaRetomo" con una frase breve, cordial y útil que conteste mínimamente si puedes y SIEMPRE reformule la pregunta pendiente.
+- "agradece": el cliente solo agradece o se despide sin aportar dato nuevo.
+
+Reglas:
+- Nunca uses emojis
+- Respuestas profesionales y cordiales
+- Máximo 2 líneas en respuestaRetomo
+- En "valida", valorNormalizado debe ser corto y literal (sin inventar datos)
+- Paso "tipo": acepta industrial, residencial, mixto o equivalente
+- Paso "equipos": lista o describe equipos a respaldar
+- Paso "horario": día y/o hora de contacto
+- Si no puedes clasificar con confianza, usa "fuera_tema" y retoma la pregunta exacta
+- Responde SOLO JSON válido, sin markdown`;
+
+export async function interpretarRespuestaGenerador(args: {
+  phone: string;
+  genStep: GenStepClaude;
+  preguntaActual: string;
+  textoUsuario: string;
+}): Promise<InterpretacionGenerador | null> {
+  const anthropic = clienteAnthropic();
+  if (!anthropic) return null;
+
+  const prompt = `Paso actual del flujo generadores: ${args.genStep}
+Pregunta que debe responder el cliente:
+"""
+${args.preguntaActual}
+"""
+Mensaje del usuario:
+"""
+${args.textoUsuario}
+"""
+
+Devuelve SOLO JSON válido (sin markdown) con esta forma:
+{
+  "tipo": "valida" | "fuera_tema" | "agradece",
+  "valorNormalizado": "solo si tipo es valida: respuesta limpia y utilizable",
+  "respuestaRetomo": "solo si tipo es fuera_tema: frase breve + reformular la pregunta pendiente"
+}`;
+
+  try {
+    const res = await anthropic.messages.create({
+      model: MODELO,
+      max_tokens: 256,
+      system: SYSTEM_PROMPT_GENERADORES,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const bloque = res.content.find((b) => b.type === "text");
+    if (!bloque || bloque.type !== "text") return null;
+
+    const parsed = parseJson<{
+      tipo: InterpretacionGeneradorTipo;
+      valorNormalizado?: string;
+      respuestaRetomo?: string;
+    }>(bloque.text);
+
+    if (!parsed?.tipo) return null;
+
+    pushHistorial(args.phone, "user", args.textoUsuario);
+    if (parsed.respuestaRetomo) {
+      pushHistorial(args.phone, "assistant", parsed.respuestaRetomo);
+    }
+
+    return {
+      tipo: parsed.tipo,
+      valorNormalizado: parsed.valorNormalizado?.trim() || undefined,
+      respuestaRetomo: parsed.respuestaRetomo
+        ? limpiarMarkdown(parsed.respuestaRetomo)
+        : undefined,
+    };
+  } catch (err) {
+    console.error("[claude interpretar generador]", err);
+    return null;
+  }
+}

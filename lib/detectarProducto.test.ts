@@ -126,4 +126,24 @@ describe("detectarPrefijoAsesor", () => {
     expect(r.advisorId).toBe(ADVISOR_ID_GUILLERMO);
     expect(r.textoLimpio).toBe("");
   });
+
+  it("copy Meta Ads G- residencial asigna Guillermo y limpia prefijo", () => {
+    const r = detectarPrefijoAsesor(
+      "G- ¡Hola! Quiero más información de generadores para mi casa.",
+    );
+    expect(r.advisorId).toBe(ADVISOR_ID_GUILLERMO);
+    expect(r.textoLimpio).toBe(
+      "¡Hola! Quiero más información de generadores para mi casa.",
+    );
+  });
+
+  it("copy Meta Ads B- residencial asigna Bernardo", () => {
+    const r = detectarPrefijoAsesor(
+      "B- ¡Hola! Quiero más información de generadores para mi casa.",
+    );
+    expect(r.advisorId).toBe(ADVISOR_ID_BERNARDO);
+    expect(r.textoLimpio).toBe(
+      "¡Hola! Quiero más información de generadores para mi casa.",
+    );
+  });
 });
