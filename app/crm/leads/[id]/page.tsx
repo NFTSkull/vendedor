@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { useLeadChat } from "./useLeadChat";
+import { ACCEPT_ARCHIVOS_CHAT, useLeadChat } from "./useLeadChat";
 import { telLead } from "@/lib/crmLeadEstadoActions";
 import {
   esGeneradoresLead,
@@ -131,7 +131,12 @@ export default function CrmLeadDetallePage() {
     nuevoMensaje,
     setNuevoMensaje,
     enviando,
+    enviandoArchivo,
+    nombreArchivoPendiente,
     enviarMensaje,
+    abrirSelectorArchivo,
+    onArchivoSeleccionado,
+    fileInputRef,
     obtenerOrigenMensaje,
     chatContainerRef,
     chatEndRef,
@@ -873,22 +878,51 @@ export default function CrmLeadDetallePage() {
                   </p>
                 ) : null}
 
+                {enviandoArchivo ? (
+                  <p className="shrink-0 border-t border-slate-200/80 bg-white px-4 py-2 text-xs text-slate-600">
+                    Enviando archivo…
+                    {nombreArchivoPendiente ? ` ${nombreArchivoPendiente}` : ""}
+                  </p>
+                ) : null}
+
                 <form
                   onSubmit={(e) => e.preventDefault()}
                   className="flex shrink-0 items-end gap-2 border-t border-slate-200/80 bg-[#f0f2f5] px-3 py-2.5"
                 >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept={ACCEPT_ARCHIVOS_CHAT}
+                    className="hidden"
+                    onChange={onArchivoSeleccionado}
+                  />
+                  <button
+                    type="button"
+                    onClick={abrirSelectorArchivo}
+                    disabled={!chatHabilitado || enviando || enviandoArchivo}
+                    aria-label="Adjuntar archivo"
+                    title="Adjuntar imagen, PDF o documento (máx 4 MB)"
+                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-lg text-slate-600 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    📎
+                  </button>
                   <textarea
                     rows={1}
                     value={nuevoMensaje}
                     onChange={(e) => setNuevoMensaje(e.target.value)}
-                    disabled={!chatHabilitado || enviando}
+                    disabled={!chatHabilitado || enviando || enviandoArchivo}
                     placeholder="Mensaje de WhatsApp…"
                     className="max-h-28 min-h-[42px] flex-1 resize-none overflow-y-auto rounded-2xl border-0 bg-white px-4 py-2.5 text-sm shadow-sm outline-none ring-1 ring-slate-200 focus:ring-2 focus:ring-[#25D366]/50 disabled:bg-slate-100"
                   />
                   <button
                     type="button"
                     onClick={() => void enviarMensaje()}
-                    disabled={!chatHabilitado || enviando || !nuevoMensaje.trim()}
+                    disabled={
+                      !chatHabilitado ||
+                      enviando ||
+                      enviandoArchivo ||
+                      !nuevoMensaje.trim()
+                    }
                     aria-label="Enviar"
                     className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#25D366] text-lg text-white shadow-sm hover:bg-[#20bd5a] disabled:opacity-50"
                   >

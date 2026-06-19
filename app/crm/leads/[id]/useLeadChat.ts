@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import {
+  ACCEPT_ARCHIVOS_CHAT,
+  MAX_ARCHIVO_CHAT_BYTES,
+  MSG_ERROR_VENTANA_24H_WHATSAPP,
+} from "@/lib/crmMediaUpload";
+
+export { ACCEPT_ARCHIVOS_CHAT };
+
 export type ChatMessage = {
   id: string;
   lead_id: string;
@@ -18,7 +26,10 @@ export function useLeadChat(leadId: string) {
   const [chatError, setChatError] = useState("");
   const [nuevoMensaje, setNuevoMensaje] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const [enviandoArchivo, setEnviandoArchivo] = useState(false);
+  const [nombreArchivoPendiente, setNombreArchivoPendiente] = useState("");
   const [mensajesAsesorLocales, setMensajesAsesorLocales] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const usuarioCercaDelFinalRef = useRef(true);
@@ -70,6 +81,82 @@ export function useLeadChat(leadId: string) {
       setChatLoading(false);
     }
   }, [leadId, router]);
+
+  async function enviarArchivo(file: File) {
+    if (file.size > MAX_ARCHIVO_CHAT_BYTES) {
+      setChatError("El archivo es muy grande (máx 4 MB)");
+      return;
+    }
+
+    const token = localStorage.getItem("crm_token");
+    if (!token) {
+      router.replace("/crm/login");
+      return;
+    }
+
+    setEnviandoArchivo(true);
+    setNombreArchivoPendiente(file.name);
+    setChatError("");
+
+    try {
+      const form = new FormData();
+      form.append("file", file);
+
+      const res = await fetch(`/api/crm/leads/${leadId}/media`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+
+      if (res.status === 401) {
+        localStorage.removeItem("crm_token");
+        router.replace("/crm/login");
+        return;
+      }
+
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+
+      if (res.status === 413) {
+        setChatError("El archivo es muy grande (máx 4 MB)");
+        return;
+      }
+      if (res.status === 400) {
+        setChatError(body.error || "Tipo de archivo no permitido");
+        return;
+      }
+      if (res.status === 502) {
+        setChatError(body.error || MSG_ERROR_VENTANA_24H_WHATSAPP);
+        return;
+      }
+      if (!res.ok) {
+        setChatError(body.error || "No se pudo enviar el archivo.");
+        return;
+      }
+
+      const rastro = `📎 ${file.name}`;
+      setMensajesAsesorLocales((prev) => [...prev, rastro]);
+      forzarScrollRef.current = true;
+      await fetchMensajes();
+    } catch {
+      setChatError("Error de red al enviar archivo.");
+    } finally {
+      setEnviandoArchivo(false);
+      setNombreArchivoPendiente("");
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  }
+
+  function abrirSelectorArchivo() {
+    fileInputRef.current?.click();
+  }
+
+  function onArchivoSeleccionado(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    void enviarArchivo(file);
+  }
 
   async function enviarMensaje(e?: { preventDefault?: () => void }) {
     e?.preventDefault?.();
@@ -151,7 +238,13 @@ export function useLeadChat(leadId: string) {
     nuevoMensaje,
     setNuevoMensaje,
     enviando,
+    enviandoArchivo,
+    nombreArchivoPendiente,
     enviarMensaje,
+    enviarArchivo,
+    abrirSelectorArchivo,
+    onArchivoSeleccionado,
+    fileInputRef,
     obtenerOrigenMensaje,
     chatContainerRef,
     chatEndRef,
