@@ -29,7 +29,7 @@ export default function CrmLoginPage() {
 
       const data = (await res.json()) as { token: string; nombre: string };
       localStorage.setItem("crm_token", data.token);
-      router.push("/crm/leads");
+      router.push("/crm/leads?producto=generadores");
     } catch {
       setErrorMsg("No se pudo iniciar sesión. Intenta de nuevo.");
     } finally {

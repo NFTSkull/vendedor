@@ -3,9 +3,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/supabaseAdmin", () => ({
   getSupabaseAdmin: () => ({
     from: () => ({
-      select: () => ({
-        eq: () => Promise.resolve({ data: [], error: null }),
-      }),
+      select: () => {
+        const empty = { data: [] as unknown[], error: null };
+        const chain = {
+          eq: () => chain,
+          in: () => chain,
+          neq: () => Promise.resolve(empty),
+          then: (
+            resolve: (v: typeof empty) => void,
+            reject?: (e: unknown) => void,
+          ) => Promise.resolve(empty).then(resolve, reject),
+        };
+        return chain;
+      },
     }),
   }),
 }));

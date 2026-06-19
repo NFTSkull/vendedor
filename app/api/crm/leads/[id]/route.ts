@@ -3,10 +3,16 @@ import { z } from "zod";
 import { requireCrmAuth } from "@/lib/crmAuth";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
-const PatchSchema = z.object({
-  estado: z.enum(["contactado", "no_interesado"]),
-  nota: z.string().trim().min(1).max(1500).optional(),
-});
+const PatchSchema = z
+  .object({
+    estado: z.enum(["nuevo", "contactado", "no_interesado"]).optional(),
+    nota: z.string().trim().min(1).max(1500).optional(),
+    fecha_contacto: z.string().datetime().nullable().optional(),
+  })
+  .refine(
+    (data) => data.estado !== undefined || data.fecha_contacto !== undefined,
+    { message: "Debe enviar estado o fecha_contacto" },
+  );
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -56,12 +62,24 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<Response> {
     }
 
     const { id } = await ctx.params;
-    const { estado, nota } = parsed.data;
+    const { estado, nota, fecha_contacto } = parsed.data;
     const supabase = getSupabaseAdmin();
+
+    const updatePayload: {
+      estado?: typeof estado;
+      fecha_contacto?: string | null;
+    } = {};
+
+    if (estado !== undefined) {
+      updatePayload.estado = estado;
+    }
+    if (fecha_contacto !== undefined) {
+      updatePayload.fecha_contacto = fecha_contacto;
+    }
 
     const { data: updated, error: updateError } = await supabase
       .from("leads")
-      .update({ estado })
+      .update(updatePayload)
       .eq("id", id)
       .select("*")
       .maybeSingle();
@@ -75,19 +93,21 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<Response> {
       return Response.json({ error: "Lead no encontrado" }, { status: 404 });
     }
 
-    const { error: actionError } = await supabase.from("lead_actions").insert({
-      lead_id: id,
-      advisor_id: auth.sub,
-      accion: estado,
-      nota: nota ?? null,
-    });
+    if (estado !== undefined) {
+      const { error: actionError } = await supabase.from("lead_actions").insert({
+        lead_id: id,
+        advisor_id: auth.sub,
+        accion: estado,
+        nota: nota ?? null,
+      });
 
-    if (actionError) {
-      console.error("[CRM lead PATCH] Error insertando acción:", actionError);
-      return Response.json(
-        { error: "Lead actualizado pero falló historial de acciones" },
-        { status: 500 },
-      );
+      if (actionError) {
+        console.error("[CRM lead PATCH] Error insertando acción:", actionError);
+        return Response.json(
+          { error: "Lead actualizado pero falló historial de acciones" },
+          { status: 500 },
+        );
+      }
     }
 
     return Response.json(updated, { status: 200 });

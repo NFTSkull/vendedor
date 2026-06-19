@@ -7,6 +7,7 @@ import {
   resolverToquePendiente,
   type ReengagementTouch,
 } from "@/lib/reengagement";
+import { ejecutarReengagementGeneradoresCron } from "@/lib/reengagementGeneradoresCron";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { enviarMensajeTextoWa } from "@/lib/whatsappCloud";
 
@@ -14,6 +15,7 @@ type LeadCron = {
   id: string;
   whatsapp_phone: string;
   updated_at: string;
+  producto?: string | null;
   monto_aprobado_min: number | string | null;
   monto_aprobado_max: number | string | null;
   reengagement_1_sent_at: string | null;
@@ -89,6 +91,10 @@ async function procesarLead(lead: LeadCron, nowMs: number): Promise<ResultadoLea
   };
 
   try {
+    if (lead.producto === "generadores") {
+      return { ...base, motivo: "producto_generadores" };
+    }
+
     const ultimoEntranteAt = await obtenerUltimoMensajeEntrante(lead.id);
     if (!ultimoEntranteAt) {
       return { ...base, motivo: "sin_mensaje_entrante" };
@@ -168,7 +174,7 @@ async function procesarLead(lead: LeadCron, nowMs: number): Promise<ResultadoLea
   }
 }
 
-export async function ejecutarReengagementCron(nowMs = Date.now()): Promise<{
+export async function ejecutarReengagementMejoravitCron(nowMs = Date.now()): Promise<{
   procesados: number;
   enviados: number;
   omitidos: number;
@@ -179,7 +185,7 @@ export async function ejecutarReengagementCron(nowMs = Date.now()): Promise<{
   const { data: leads, error } = await supabase
     .from("leads")
     .select(
-      "id, whatsapp_phone, updated_at, monto_aprobado_min, monto_aprobado_max, reengagement_1_sent_at, reengagement_2_sent_at",
+      "id, whatsapp_phone, updated_at, producto, monto_aprobado_min, monto_aprobado_max, reengagement_1_sent_at, reengagement_2_sent_at",
     )
     .eq("estado", "nuevo");
 
@@ -200,5 +206,34 @@ export async function ejecutarReengagementCron(nowMs = Date.now()): Promise<{
     omitidos: resultados.filter((r) => r.estado === "omitido").length,
     errores: resultados.filter((r) => r.estado === "error").length,
     resultados,
+  };
+}
+
+export async function ejecutarReengagementCron(nowMs = Date.now()): Promise<{
+  procesados: number;
+  enviados: number;
+  omitidos: number;
+  errores: number;
+  resultados: ResultadoLead[];
+  mejoravit: {
+    procesados: number;
+    enviados: number;
+    omitidos: number;
+    errores: number;
+    resultados: ResultadoLead[];
+  };
+  generadores: Awaited<ReturnType<typeof ejecutarReengagementGeneradoresCron>>;
+}> {
+  const mejoravit = await ejecutarReengagementMejoravitCron(nowMs);
+  const generadores = await ejecutarReengagementGeneradoresCron(nowMs);
+
+  return {
+    procesados: mejoravit.procesados + generadores.procesados,
+    enviados: mejoravit.enviados + generadores.enviados,
+    omitidos: mejoravit.omitidos + generadores.omitidos,
+    errores: mejoravit.errores + generadores.errores,
+    resultados: [...mejoravit.resultados, ...generadores.resultados],
+    mejoravit,
+    generadores,
   };
 }

@@ -1,4 +1,9 @@
 import { requireCrmAuth } from "@/lib/crmAuth";
+import {
+  enriquecerLeadConUltimoMensaje,
+  mapUltimosMensajesPorLead,
+  ordenarLeadsPorActividad,
+} from "@/lib/crmLeadsList";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function GET(req: Request): Promise<Response> {
@@ -24,10 +29,7 @@ export async function GET(req: Request): Promise<Response> {
       return Response.json({ error: "Error interno" }, { status: 500 });
     }
 
-    let query = supabase
-      .from("leads")
-      .select("*")
-      .order("created_at", { ascending: false });
+    let query = supabase.from("leads").select("*");
 
     if (producto) {
       query = query.eq("producto", producto);
@@ -47,7 +49,18 @@ export async function GET(req: Request): Promise<Response> {
       return Response.json({ error: "Error interno" }, { status: 500 });
     }
 
-    return Response.json(data ?? [], { status: 200 });
+    const leads = data ?? [];
+    const leadIds = leads.map((l) => l.id as string);
+    const ultimosPorLead = await mapUltimosMensajesPorLead(supabase, leadIds);
+
+    const enriquecidos = leads.map((lead) =>
+      enriquecerLeadConUltimoMensaje(
+        { ...lead, id: lead.id as string, created_at: lead.created_at as string },
+        ultimosPorLead,
+      ),
+    );
+
+    return Response.json(ordenarLeadsPorActividad(enriquecidos), { status: 200 });
   } catch (err) {
     console.error("[CRM leads GET] Error:", err);
     return Response.json({ error: "Error interno" }, { status: 500 });

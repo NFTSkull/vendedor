@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 export type ChatMessage = {
@@ -19,7 +19,24 @@ export function useLeadChat(leadId: string) {
   const [nuevoMensaje, setNuevoMensaje] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [mensajesAsesorLocales, setMensajesAsesorLocales] = useState<string[]>([]);
+  const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const usuarioCercaDelFinalRef = useRef(true);
+  const forzarScrollRef = useRef(false);
+  const esCargaInicialRef = useRef(true);
+
+  const scrollChatAlFinal = useCallback((behavior: ScrollBehavior = "auto") => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior });
+  }, []);
+
+  const onChatScroll = useCallback(() => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+    const distanciaAlFinal = el.scrollHeight - el.scrollTop - el.clientHeight;
+    usuarioCercaDelFinalRef.current = distanciaAlFinal < 96;
+  }, []);
 
   const fetchMensajes = useCallback(async () => {
     const token = localStorage.getItem("crm_token");
@@ -54,8 +71,8 @@ export function useLeadChat(leadId: string) {
     }
   }, [leadId, router]);
 
-  async function enviarMensaje(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function enviarMensaje(e?: { preventDefault?: () => void }) {
+    e?.preventDefault?.();
     const texto = nuevoMensaje.trim();
     if (!texto) return;
 
@@ -91,6 +108,7 @@ export function useLeadChat(leadId: string) {
 
       setNuevoMensaje("");
       setMensajesAsesorLocales((prev) => [...prev, texto]);
+      forzarScrollRef.current = true;
       await fetchMensajes();
     } catch {
       setChatError("Error de red al enviar mensaje.");
@@ -106,6 +124,8 @@ export function useLeadChat(leadId: string) {
 
   useEffect(() => {
     if (!leadId) return;
+    esCargaInicialRef.current = true;
+    usuarioCercaDelFinalRef.current = true;
     void fetchMensajes();
     const timer = setInterval(() => {
       void fetchMensajes();
@@ -114,8 +134,15 @@ export function useLeadChat(leadId: string) {
   }, [leadId, fetchMensajes]);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [mensajes]);
+    if (esCargaInicialRef.current) {
+      esCargaInicialRef.current = false;
+      return;
+    }
+    if (forzarScrollRef.current || usuarioCercaDelFinalRef.current) {
+      scrollChatAlFinal(forzarScrollRef.current ? "smooth" : "auto");
+    }
+    forzarScrollRef.current = false;
+  }, [mensajes, scrollChatAlFinal]);
 
   return {
     mensajes,
@@ -126,7 +153,10 @@ export function useLeadChat(leadId: string) {
     enviando,
     enviarMensaje,
     obtenerOrigenMensaje,
+    chatContainerRef,
     chatEndRef,
+    onChatScroll,
+    scrollChatAlFinal,
     fetchMensajes,
   };
 }
