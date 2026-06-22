@@ -8,6 +8,9 @@ const PatchSchema = z
     estado: z.enum(["nuevo", "contactado", "no_interesado"]).optional(),
     nota: z.string().trim().min(1).max(1500).optional(),
     fecha_contacto: z.string().datetime().nullable().optional(),
+    fecha_contacto_origen: z
+      .enum(["manual", "automatico_alta", "automatico_media"])
+      .optional(),
   })
   .refine(
     (data) => data.estado !== undefined || data.fecha_contacto !== undefined,
@@ -62,12 +65,13 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<Response> {
     }
 
     const { id } = await ctx.params;
-    const { estado, nota, fecha_contacto } = parsed.data;
+    const { estado, nota, fecha_contacto, fecha_contacto_origen } = parsed.data;
     const supabase = getSupabaseAdmin();
 
     const updatePayload: {
       estado?: typeof estado;
       fecha_contacto?: string | null;
+      fecha_contacto_origen?: string;
     } = {};
 
     if (estado !== undefined) {
@@ -75,6 +79,7 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<Response> {
     }
     if (fecha_contacto !== undefined) {
       updatePayload.fecha_contacto = fecha_contacto;
+      updatePayload.fecha_contacto_origen = fecha_contacto_origen ?? "manual";
     }
 
     const { data: updated, error: updateError } = await supabase

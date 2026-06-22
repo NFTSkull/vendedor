@@ -156,6 +156,7 @@ async function procesarLeadGeneradores(
       leadId: lead.id,
       direccion: "saliente",
       contenido: mensaje,
+      origen: "bot",
     });
     if (!guardado) {
       throw new Error("Mensaje enviado pero no se guardó en historial");

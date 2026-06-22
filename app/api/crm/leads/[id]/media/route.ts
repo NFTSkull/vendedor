@@ -152,6 +152,8 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
       leadId,
       direccion: "saliente",
       contenido: contenidoHistorial,
+      origen: "asesor",
+      advisorId: auth.sub,
     });
 
     if (!guardado) {

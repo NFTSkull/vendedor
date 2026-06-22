@@ -114,11 +114,13 @@ describe("POST /api/webhook", () => {
       leadId: "lead-1",
       direccion: "entrante",
       contenido: "Hola",
+      origen: "cliente",
     });
     expect(mocks.guardarMensaje).toHaveBeenCalledWith({
       leadId: "lead-1",
       direccion: "saliente",
       contenido: "Respuesta del bot",
+      origen: "bot",
     });
     expect(mocks.enviarPushNuevoLead).toHaveBeenCalledWith({
       leadId: "lead-1",
@@ -164,11 +166,13 @@ describe("POST /api/webhook", () => {
       leadId: "lead-recien-creado",
       direccion: "entrante",
       contenido: "Hola",
+      origen: "cliente",
     });
     expect(mocks.guardarMensaje).toHaveBeenCalledWith({
       leadId: "lead-recien-creado",
       direccion: "saliente",
       contenido: "Respuesta del bot",
+      origen: "bot",
     });
   });
 
@@ -207,11 +211,13 @@ describe("POST /api/webhook", () => {
       leadId: "lead-3",
       direccion: "saliente",
       contenido: "Un momento, estoy consultando tu información en Infonavit... ⏳",
+      origen: "bot",
     });
     expect(mocks.guardarMensaje).toHaveBeenCalledWith({
       leadId: "lead-3",
       direccion: "saliente",
       contenido: "Respuesta del bot",
+      origen: "bot",
     });
   });
 
@@ -362,6 +368,7 @@ describe("POST /api/webhook", () => {
       contenido:
         "Solo puedo procesar mensajes de texto por el momento. " +
         "Por favor escribe tu respuesta 😊",
+      origen: "bot",
     });
   });
 

@@ -133,6 +133,8 @@ describe("POST /api/crm/leads/[id]/media", () => {
       leadId: "lead-1",
       direccion: "saliente",
       contenido: "📎 cotizacion.pdf",
+      origen: "asesor",
+      advisorId: "advisor-1",
     });
     expect(mocks.insertLeadAction).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ACCEPT_ARCHIVOS_CHAT, useLeadChat } from "./useLeadChat";
 import { telLead } from "@/lib/crmLeadEstadoActions";
 import {
@@ -124,6 +124,7 @@ export default function CrmLeadDetallePage() {
     if (typeof window === "undefined") return "chat";
     return parseVistaLead(new URLSearchParams(window.location.search).get("vista"));
   });
+  const refreshLeadRef = useRef<(() => Promise<void>) | undefined>(undefined);
   const {
     mensajes,
     chatLoading,
@@ -143,7 +144,9 @@ export default function CrmLeadDetallePage() {
     onChatScroll,
     scrollChatAlFinal,
     fetchMensajes,
-  } = useLeadChat(leadId);
+  } = useLeadChat(leadId, {
+    onEnvioExitoso: () => refreshLeadRef.current?.(),
+  });
 
   function getToken(): string | null {
     const token = localStorage.getItem("crm_token");
@@ -193,6 +196,7 @@ export default function CrmLeadDetallePage() {
       setLoading(false);
     }
   }
+  refreshLeadRef.current = fetchLead;
 
   async function actualizarEstado(estado: "contactado" | "no_interesado") {
     const token = getToken();

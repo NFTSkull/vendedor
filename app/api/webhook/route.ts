@@ -184,6 +184,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           leadId: leadIdNoTexto,
           direccion: "saliente",
           contenido: MSG_SOLO_TEXTO,
+          origen: "bot",
         });
       } catch (err) {
         console.error("[webhook] Error guardando mensaje saliente no-texto:", err);
@@ -290,6 +291,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         leadId: leadChat.id,
         direccion,
         contenido,
+        origen: direccion === "entrante" ? "cliente" : "bot",
       });
     }
 

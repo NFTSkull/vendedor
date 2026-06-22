@@ -206,6 +206,7 @@ describe("escenario completo: recordatorio en equipos → usuario responde", () 
       leadId: LEAD_ID,
       direccion: "saliente",
       contenido: construirMensajeReengagementGeneradores("equipos"),
+      origen: "bot",
     });
     expect(mocks.leadUpdates).toEqual([
       { gen_reengagement_1_sent_at: expect.any(String) },

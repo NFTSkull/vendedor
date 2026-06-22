@@ -17,9 +17,15 @@ export type ChatMessage = {
   direccion: "entrante" | "saliente";
   contenido: string;
   created_at: string;
+  origen?: "cliente" | "bot" | "asesor";
+  advisor_nombre?: string | null;
 };
 
-export function useLeadChat(leadId: string) {
+type UseLeadChatOptions = {
+  onEnvioExitoso?: () => void | Promise<void>;
+};
+
+export function useLeadChat(leadId: string, options?: UseLeadChatOptions) {
   const router = useRouter();
   const [mensajes, setMensajes] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
@@ -137,6 +143,7 @@ export function useLeadChat(leadId: string) {
       setMensajesAsesorLocales((prev) => [...prev, rastro]);
       forzarScrollRef.current = true;
       await fetchMensajes();
+      await options?.onEnvioExitoso?.();
     } catch {
       setChatError("Error de red al enviar archivo.");
     } finally {
@@ -197,6 +204,7 @@ export function useLeadChat(leadId: string) {
       setMensajesAsesorLocales((prev) => [...prev, texto]);
       forzarScrollRef.current = true;
       await fetchMensajes();
+      await options?.onEnvioExitoso?.();
     } catch {
       setChatError("Error de red al enviar mensaje.");
     } finally {
@@ -204,7 +212,13 @@ export function useLeadChat(leadId: string) {
     }
   }
 
-  function obtenerOrigenMensaje(msg: ChatMessage): "Cliente" | "Bot" | "Asesor" {
+  function obtenerOrigenMensaje(msg: ChatMessage): string {
+    if (msg.origen === "cliente") return "Cliente";
+    if (msg.origen === "bot") return "Bot";
+    if (msg.origen === "asesor") {
+      if (msg.advisor_nombre) return msg.advisor_nombre.toUpperCase();
+      return "Asesor";
+    }
     if (msg.direccion === "entrante") return "Cliente";
     return mensajesAsesorLocales.includes(msg.contenido) ? "Asesor" : "Bot";
   }

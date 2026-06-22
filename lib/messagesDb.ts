@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type MessageDireccion = "entrante" | "saliente";
+export type MessageOrigen = "cliente" | "bot" | "asesor";
 
 export type LeadRow = {
   id: string;
@@ -13,8 +14,11 @@ export type MessageRow = {
   id: string;
   lead_id: string;
   direccion: MessageDireccion;
+  origen: MessageOrigen;
   contenido: string;
   created_at: string;
+  advisor_id?: string | null;
+  advisor_nombre?: string | null;
 };
 
 const ESTADOS_CHAT = ["contactado", "no_interesado"] as const;
@@ -63,13 +67,29 @@ export async function guardarMensaje(args: {
   leadId: string;
   direccion: MessageDireccion;
   contenido: string;
+  origen?: MessageOrigen;
+  advisorId?: string | null;
 }): Promise<boolean> {
   const supabase = getSupabaseAdmin();
-  const { error } = await supabase.from("messages").insert({
+  const origen = args.origen ?? "bot";
+  const payload: {
+    lead_id: string;
+    direccion: MessageDireccion;
+    contenido: string;
+    origen: MessageOrigen;
+    advisor_id?: string;
+  } = {
     lead_id: args.leadId,
     direccion: args.direccion,
     contenido: args.contenido,
-  });
+    origen,
+  };
+
+  if (origen === "asesor" && args.advisorId) {
+    payload.advisor_id = args.advisorId;
+  }
+
+  const { error } = await supabase.from("messages").insert(payload);
 
   if (error) {
     console.error("[messages] Error guardando mensaje:", error);
@@ -85,7 +105,9 @@ export async function listarMensajesPorLead(
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("messages")
-    .select("id, lead_id, direccion, contenido, created_at")
+    .select(
+      "id, lead_id, direccion, origen, contenido, created_at, advisor_id",
+    )
     .eq("lead_id", leadId)
     .order("created_at", { ascending: true });
 
@@ -94,5 +116,46 @@ export async function listarMensajesPorLead(
     return [];
   }
 
-  return (data ?? []) as MessageRow[];
+  const rows = data ?? [];
+  if (rows.length === 0) return [];
+
+  const advisorIds = [
+    ...new Set(
+      rows
+        .map((row) => row.advisor_id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    ),
+  ];
+
+  const nombresPorAdvisorId = new Map<string, string>();
+
+  if (advisorIds.length > 0) {
+    const { data: advisors, error: advisorsError } = await supabase
+      .from("advisors")
+      .select("id, nombre")
+      .in("id", advisorIds);
+
+    if (advisorsError) {
+      console.error("[messages] Error listando nombres de asesores:", advisorsError);
+    } else {
+      for (const advisor of advisors ?? []) {
+        if (advisor.id && advisor.nombre) {
+          nombresPorAdvisorId.set(advisor.id, advisor.nombre);
+        }
+      }
+    }
+  }
+
+  return rows.map((row) => ({
+    id: row.id,
+    lead_id: row.lead_id,
+    direccion: row.direccion,
+    origen: row.origen,
+    contenido: row.contenido,
+    created_at: row.created_at,
+    advisor_id: row.advisor_id ?? null,
+    advisor_nombre: row.advisor_id
+      ? (nombresPorAdvisorId.get(row.advisor_id) ?? null)
+      : null,
+  }));
 }

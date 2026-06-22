@@ -5,6 +5,7 @@ import {
 import type { ConversationValue } from "@/lib/conversationMemory";
 import { getConversation, setConversation } from "@/lib/conversationMemory";
 import { actualizarLeadPorConversacion } from "@/lib/leadProvisional";
+import { interpretarHorarioConClaude } from "@/lib/interpretarHorarioContacto";
 import { esComandoReinicio } from "@/lib/botStepsCore";
 import { esNegativo } from "@/lib/normalizeText";
 
@@ -116,6 +117,52 @@ async function persistirPaso(
   });
 }
 
+const INTERPRETACION_CLAUDE_TIMEOUT_MS = 4000;
+
+/** Interpreta horario con Claude y persiste fecha_contacto si confianza alta/media. */
+export async function aplicarFechaContactoInterpretada(
+  phone: string,
+  horarioTexto: string,
+): Promise<void> {
+  try {
+    const interp = await interpretarHorarioConClaude(horarioTexto);
+    if (!interp?.fecha_contacto) return;
+    if (interp.confianza !== "alta" && interp.confianza !== "media") return;
+
+    const fecha_contacto_origen =
+      interp.confianza === "alta" ? "automatico_alta" : "automatico_media";
+
+    const ok = await actualizarLeadPorConversacion(phone, {
+      fecha_contacto: interp.fecha_contacto,
+      fecha_contacto_origen,
+    });
+    if (!ok) {
+      console.error("[generadores] Error guardando fecha_contacto interpretada:", {
+        phone,
+      });
+    }
+  } catch (err) {
+    console.error("[generadores] interpretarHorarioContacto:", err);
+  }
+}
+
+async function esperarInterpretacionConTimeout(
+  phone: string,
+  horarioTexto: string,
+): Promise<void> {
+  await Promise.race([
+    aplicarFechaContactoInterpretada(phone, horarioTexto),
+    new Promise<void>((resolve) => {
+      setTimeout(() => {
+        console.warn(
+          "[generadores] Timeout interpretación Claude, lead sin fecha_contacto",
+        );
+        resolve();
+      }, INTERPRETACION_CLAUDE_TIMEOUT_MS);
+    }),
+  ]);
+}
+
 export async function procesarYEvolucionarGeneradores(args: {
   phone: string;
   textoUsuario: string;
@@ -201,6 +248,8 @@ export async function procesarYEvolucionarGeneradores(args: {
   if (!ok) {
     console.error("[generadores] Error actualizando lead:", { phone });
   }
+
+  await esperarInterpretacionConTimeout(phone, horarioFinal);
 
   await setConversation(phone, {
     state: "finalizado",

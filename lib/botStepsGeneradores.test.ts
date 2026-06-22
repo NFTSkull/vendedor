@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   actualizarLeadPorConversacion: vi.fn(),
   claudeDisponible: vi.fn(),
   interpretarRespuestaGenerador: vi.fn(),
+  interpretarHorarioConClaude: vi.fn(),
 }));
 
 vi.mock("@/lib/conversationMemory", () => ({
@@ -22,6 +23,10 @@ vi.mock("@/lib/claudeAssistant", () => ({
   interpretarRespuestaGenerador: mocks.interpretarRespuestaGenerador,
 }));
 
+vi.mock("@/lib/interpretarHorarioContacto", () => ({
+  interpretarHorarioConClaude: mocks.interpretarHorarioConClaude,
+}));
+
 import { procesarYEvolucionarGeneradores } from "@/lib/botStepsGeneradores";
 
 const PREGUNTA_HORARIO = "¿En qué día y horario te podemos contactar?";
@@ -31,6 +36,11 @@ describe("procesarYEvolucionarGeneradores", () => {
     vi.resetAllMocks();
     mocks.actualizarLeadPorConversacion.mockResolvedValue(true);
     mocks.claudeDisponible.mockReturnValue(true);
+    mocks.interpretarHorarioConClaude.mockResolvedValue({
+      fecha_contacto: "2026-06-23T10:00:00-06:00",
+      confianza: "media",
+      razon: "test",
+    });
   });
 
   it("mensaje vacío → null", async () => {
@@ -184,6 +194,7 @@ describe("procesarYEvolucionarGeneradores", () => {
       horario: "Martes 10am",
       nota: "Generador — Uso: industrial. Equipos a respaldar: aires.",
     });
+    expect(mocks.interpretarHorarioConClaude).toHaveBeenCalledWith("Martes 10am");
     expect(mocks.setConversation).toHaveBeenCalledTimes(1);
     expect(mocks.setConversation).toHaveBeenCalledWith(
       "5215550000000",

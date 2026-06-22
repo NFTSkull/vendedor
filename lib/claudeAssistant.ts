@@ -67,7 +67,7 @@ export function limpiarMarkdown(texto: string): string {
     .replace(/\*(.*?)\*/g, "$1");
 }
 
-const MODELO = "claude-haiku-4-5-20251001";
+export const MODELO = "claude-haiku-4-5-20251001";
 const MAX_HISTORIAL = 12;
 
 export type InterpretacionTipo =
@@ -90,7 +90,7 @@ type HistorialMsg = { role: "user" | "assistant"; content: string };
 
 const historialClaude = new Map<string, HistorialMsg[]>();
 
-function clienteAnthropic(): Anthropic | null {
+export function clienteAnthropic(): Anthropic | null {
   console.log(
     "[Claude] API key disponible:",
     Boolean(process.env.ANTHROPIC_API_KEY?.trim()),

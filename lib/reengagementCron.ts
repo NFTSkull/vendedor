@@ -152,6 +152,7 @@ async function procesarLead(lead: LeadCron, nowMs: number): Promise<ResultadoLea
       leadId: lead.id,
       direccion: "saliente",
       contenido: mensaje,
+      origen: "bot",
     });
     if (!guardado) {
       throw new Error("Mensaje enviado pero no se guardó en historial");
