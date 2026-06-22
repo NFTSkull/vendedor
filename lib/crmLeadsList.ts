@@ -4,6 +4,7 @@ export type UltimoMensajeLead = {
   ultimo_mensaje: string | null;
   ultimo_mensaje_fecha: string | null;
   ultimo_mensaje_direccion: "entrante" | "saliente" | null;
+  ultima_actividad_at: string;
 };
 
 type MensajeRow = {
@@ -22,8 +23,8 @@ type LeadConCreatedAt = { id: string; created_at: string };
 export async function mapUltimosMensajesPorLead(
   supabase: SupabaseClient,
   leadIds: string[],
-): Promise<Map<string, UltimoMensajeLead>> {
-  const map = new Map<string, UltimoMensajeLead>();
+): Promise<Map<string, Omit<UltimoMensajeLead, "ultima_actividad_at">>> {
+  const map = new Map<string, Omit<UltimoMensajeLead, "ultima_actividad_at">>();
   if (leadIds.length === 0) return map;
 
   const { data, error } = await supabase
@@ -49,35 +50,39 @@ export async function mapUltimosMensajesPorLead(
   return map;
 }
 
+export function calcularUltimaActividadAt(
+  lead: LeadConCreatedAt & {
+    ultimo_mensaje_fecha?: string | null;
+  },
+): string {
+  return lead.ultimo_mensaje_fecha ?? lead.created_at;
+}
+
 export function enriquecerLeadConUltimoMensaje<T extends LeadConCreatedAt>(
   lead: T,
-  ultimos: Map<string, UltimoMensajeLead>,
+  ultimos: Map<string, Omit<UltimoMensajeLead, "ultima_actividad_at">>,
 ): T & UltimoMensajeLead {
   const ultimo = ultimos.get(lead.id);
+  const ultimo_mensaje_fecha = ultimo?.ultimo_mensaje_fecha ?? null;
   return {
     ...lead,
     ultimo_mensaje: ultimo?.ultimo_mensaje ?? null,
-    ultimo_mensaje_fecha: ultimo?.ultimo_mensaje_fecha ?? null,
+    ultimo_mensaje_fecha,
     ultimo_mensaje_direccion: ultimo?.ultimo_mensaje_direccion ?? null,
+    ultima_actividad_at: calcularUltimaActividadAt({
+      ...lead,
+      ultimo_mensaje_fecha,
+    }),
   };
 }
 
+/** Orden estilo WhatsApp: COALESCE(último mensaje, created_at) DESC. */
 export function ordenarLeadsPorActividad<T extends LeadConCreatedAt & UltimoMensajeLead>(
   leads: T[],
 ): T[] {
   return [...leads].sort((a, b) => {
-    const aHas = !!a.ultimo_mensaje_fecha;
-    const bHas = !!b.ultimo_mensaje_fecha;
-
-    if (aHas && bHas) {
-      return (
-        new Date(b.ultimo_mensaje_fecha!).getTime() -
-        new Date(a.ultimo_mensaje_fecha!).getTime()
-      );
-    }
-    if (aHas && !bHas) return -1;
-    if (!aHas && bHas) return 1;
-
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    const aTs = new Date(a.ultima_actividad_at).getTime();
+    const bTs = new Date(b.ultima_actividad_at).getTime();
+    return bTs - aTs;
   });
 }

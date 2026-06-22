@@ -62,6 +62,7 @@ type Lead = {
   ultimo_mensaje: string | null;
   ultimo_mensaje_fecha: string | null;
   ultimo_mensaje_direccion: "entrante" | "saliente" | null;
+  ultima_actividad_at: string;
 };
 
 function indicadorEstadoClase(estado: LeadEstado): string {
@@ -138,10 +139,7 @@ function formatearHoraBandeja(iso: string): string {
 }
 
 function horaFilaLead(lead: Lead): string {
-  if (lead.ultimo_mensaje_fecha) {
-    return formatearHoraBandeja(lead.ultimo_mensaje_fecha);
-  }
-  return formatearHoraBandeja(lead.created_at);
+  return formatearHoraBandeja(lead.ultima_actividad_at ?? lead.ultimo_mensaje_fecha ?? lead.created_at);
 }
 
 function previewFilaLead(lead: Lead): { texto: string; vacio: boolean } {
