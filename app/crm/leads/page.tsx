@@ -238,6 +238,8 @@ export default function CrmLeadsPage() {
   const [busqueda, setBusqueda] = useState("");
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>("todos");
   const [recargando, setRecargando] = useState(false);
+  const [agendaUrgentes, setAgendaUrgentes] = useState(0);
+  const [agendaTieneVencidos, setAgendaTieneVencidos] = useState(false);
 
   const [modalAbierto, setModalAbierto] = useState(false);
   const [nssInput, setNssInput] = useState("");
@@ -399,6 +401,25 @@ export default function CrmLeadsPage() {
 
   const saldoSubcuenta = normalizarNumero(resultado?.datos?.saldoSubcuenta);
   const esMejoravit = tabActiva === "mejoravit";
+
+  async function cargarAgendaUrgentes() {
+    const token = localStorage.getItem("crm_token");
+    if (!token) return;
+
+    try {
+      const res = await fetch(`/api/crm/agenda?producto=${tabActiva}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        counts: { vencidos: number; hoy: number };
+      };
+      setAgendaUrgentes(data.counts.vencidos + data.counts.hoy);
+      setAgendaTieneVencidos(data.counts.vencidos > 0);
+    } catch {
+      /* badge opcional */
+    }
+  }
 
   async function cargarLeads(opciones?: { silencioso?: boolean }) {
     const token = localStorage.getItem("crm_token");
@@ -576,6 +597,7 @@ export default function CrmLeadsPage() {
 
   useEffect(() => {
     void cargarLeads();
+    void cargarAgendaUrgentes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabActiva]);
 
@@ -674,6 +696,24 @@ export default function CrmLeadsPage() {
                   <span className="truncate">{tab.label}</span>
                 </button>
               ))}
+              <Link
+                href={`/crm/agenda?producto=${tabActiva}`}
+                className="relative flex flex-1 items-center justify-center gap-1 rounded-lg px-1.5 py-2 text-xs font-medium text-white/80 transition hover:bg-white/10 hover:text-white"
+              >
+                <span aria-hidden>📅</span>
+                <span className="truncate">Agenda</span>
+                {agendaUrgentes > 0 ? (
+                  <span
+                    className={
+                      agendaTieneVencidos
+                        ? "absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white"
+                        : "absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#25D366] px-1 text-[10px] font-bold text-white"
+                    }
+                  >
+                    {agendaUrgentes > 99 ? "99+" : agendaUrgentes}
+                  </span>
+                ) : null}
+              </Link>
             </div>
           </div>
         </header>
