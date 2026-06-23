@@ -51,6 +51,10 @@ const PHONE = "5215559999999";
 const LEAD_ID = "lead-gen-equipos";
 const PREGUNTA_HORARIO = "¿En qué día y horario te podemos contactar?";
 const PREGUNTA_EQUIPOS = "¿Qué equipos necesitas respaldar?";
+const MSG_PRECIO_GENERICO =
+  "Los generadores para uso residencial rondan entre $12,186 y $23,000 dependiendo de lo que quieras respaldar.\n\nTenemos desde opciones para refrigerador y lo básico del hogar ($12,186) hasta modelos que cubren minisplit y todos los electrodomésticos ($23,000).\n\n¿Qué equipos te interesa respaldar?";
+const MSG_COTIZACION_GP3600 =
+  "Buenas tardes.\nPara respaldar electrodomésticos, iluminación y refrigerador puede ser suficiente un generador GENERAC GP3600 110V.\nPrecio: $12,186.00 💡";
 
 function isoHaceMinutos(minutos: number): string {
   return new Date(NOW - minutos * 60_000).toISOString();
@@ -231,15 +235,16 @@ describe("escenario completo: recordatorio en equipos → usuario responde", () 
       textoUsuario: "los aires acondicionados y el refrigerador",
     });
 
-    expect(botRes).toBe(PREGUNTA_HORARIO);
+    expect(botRes).toBe(MSG_COTIZACION_GP3600);
     expect(mocks.interpretarRespuestaGenerador).not.toHaveBeenCalled();
     expect(mocks.setConversation).toHaveBeenCalledWith(
       PHONE,
       expect.objectContaining({
         data: expect.objectContaining({
-          genStep: "horario",
+          genStep: "cotizacion",
           gen_tipo: "uso industrial",
           gen_equipos: "los aires acondicionados y el refrigerador",
+          gen_modelo: "gp3600",
         }),
       }),
     );
@@ -254,12 +259,40 @@ describe("escenario completo: recordatorio en equipos → usuario responde", () 
       nss: null,
       lead_id: LEAD_ID,
       producto: "generadores",
-      data: { genStep: "equipos", gen_tipo: "uso industrial" },
+      data: {
+        genStep: "cotizacion",
+        gen_tipo: "uso industrial",
+        gen_equipos: "los aires acondicionados y el refrigerador",
+        gen_modelo: "gp3600",
+      },
     });
-    mocks.interpretarRespuestaGenerador.mockResolvedValue({
-      tipo: "fuera_tema",
-      respuestaRetomo:
-        "Te cotizamos en la llamada. ¿Qué equipos necesitas respaldar?",
+
+    const botResInteres = await procesarYEvolucionarGeneradores({
+      phone: PHONE,
+      textoUsuario: "me interesa",
+    });
+
+    expect(botResInteres).toBe(PREGUNTA_HORARIO);
+    expect(mocks.setConversation).toHaveBeenCalledWith(
+      PHONE,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          genStep: "horario",
+          gen_interes: "si",
+        }),
+      }),
+    );
+
+    vi.clearAllMocks();
+    mocks.actualizarLeadPorConversacion.mockResolvedValue(true);
+    mocks.claudeDisponible.mockReturnValue(true);
+    mocks.getConversation.mockResolvedValue({
+      state: "inicio",
+      name: null,
+      nss: null,
+      lead_id: LEAD_ID,
+      producto: "generadores",
+      data: { genStep: "equipos", gen_tipo: "uso industrial" },
     });
 
     const offTopic = await procesarYEvolucionarGeneradores({
@@ -267,17 +300,18 @@ describe("escenario completo: recordatorio en equipos → usuario responde", () 
       textoUsuario: "¿cuánto cuesta el generador?",
     });
 
-    expect(offTopic).toBe(
-      "Te cotizamos en la llamada. ¿Qué equipos necesitas respaldar?",
-    );
-    expect(mocks.setConversation).not.toHaveBeenCalled();
-    expect(mocks.actualizarLeadPorConversacion).not.toHaveBeenCalled();
-    expect(mocks.interpretarRespuestaGenerador).toHaveBeenCalledWith(
+    expect(offTopic).toBe(MSG_PRECIO_GENERICO);
+    expect(mocks.setConversation).toHaveBeenCalledWith(
+      PHONE,
       expect.objectContaining({
-        genStep: "equipos",
-        textoUsuario: "¿cuánto cuesta el generador?",
+        data: expect.objectContaining({
+          genStep: "cotizacion",
+          gen_modelo: "precio",
+        }),
       }),
     );
+    expect(mocks.actualizarLeadPorConversacion).not.toHaveBeenCalled();
+    expect(mocks.interpretarRespuestaGenerador).not.toHaveBeenCalled();
 
     vi.clearAllMocks();
     mocks.claudeDisponible.mockReturnValue(false);

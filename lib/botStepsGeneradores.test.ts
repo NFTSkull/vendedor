@@ -32,6 +32,10 @@ import { procesarYEvolucionarGeneradores } from "@/lib/botStepsGeneradores";
 const PREGUNTA_TIPO = "¿El generador es para uso industrial o residencial?";
 const PREGUNTA_EQUIPOS = "¿Qué equipos necesitas respaldar?";
 const PREGUNTA_HORARIO = "¿En qué día y horario te podemos contactar?";
+const MSG_PRECIO_GENERICO =
+  "Los generadores para uso residencial rondan entre $12,186 y $23,000 dependiendo de lo que quieras respaldar.\n\nTenemos desde opciones para refrigerador y lo básico del hogar ($12,186) hasta modelos que cubren minisplit y todos los electrodomésticos ($23,000).\n\n¿Qué equipos te interesa respaldar?";
+const MSG_COTIZACION_GP8500E =
+  "Buenas tardes.\nPara respaldar electrodomésticos, iluminación y dos minisplits puede ser suficiente un generador GENERAC GP8500E 110V/220V 2 fases.\nPrecio: $23,000.00 ❄️❄️";
 
 describe("procesarYEvolucionarGeneradores", () => {
   beforeEach(() => {
@@ -97,7 +101,7 @@ describe("procesarYEvolucionarGeneradores", () => {
     );
   });
 
-  it("fuera_tema no avanza de paso", async () => {
+  it("precio sin equipos → devuelve MSG_PRECIO_GENERICO y avanza a cotizacion", async () => {
     mocks.getConversation.mockResolvedValue({
       state: "inicio",
       name: null,
@@ -105,18 +109,23 @@ describe("procesarYEvolucionarGeneradores", () => {
       lead_id: "lead-1",
       data: { genStep: "equipos", gen_tipo: "industrial" },
     });
-    mocks.interpretarRespuestaGenerador.mockResolvedValue({
-      tipo: "fuera_tema",
-      respuestaRetomo: "Te cotizamos en la llamada. ¿Qué equipos necesitas respaldar?",
-    });
 
     const r = await procesarYEvolucionarGeneradores({
       phone: "5215550000000",
       textoUsuario: "¿cuánto cuesta?",
     });
 
-    expect(r).toBe("Te cotizamos en la llamada. ¿Qué equipos necesitas respaldar?");
-    expect(mocks.setConversation).not.toHaveBeenCalled();
+    expect(r).toBe(MSG_PRECIO_GENERICO);
+    expect(mocks.interpretarRespuestaGenerador).not.toHaveBeenCalled();
+    expect(mocks.setConversation).toHaveBeenCalledWith(
+      "5215550000000",
+      expect.objectContaining({
+        data: expect.objectContaining({
+          genStep: "cotizacion",
+          gen_modelo: "precio",
+        }),
+      }),
+    );
     expect(mocks.actualizarLeadPorConversacion).not.toHaveBeenCalled();
   });
 
@@ -452,7 +461,7 @@ describe("procesarYEvolucionarGeneradores", () => {
   });
 
   describe("detección determinística equipos", () => {
-    it('"Refrigerador y 2 minisplit" avanza a horario sin Claude', async () => {
+    it('"Refrigerador y 2 minisplit" avanza a cotizacion sin Claude', async () => {
       mocks.getConversation.mockResolvedValue({
         state: "inicio",
         name: null,
@@ -466,13 +475,46 @@ describe("procesarYEvolucionarGeneradores", () => {
         textoUsuario: "Refrigerador y 2 minisplit",
       });
 
-      expect(r).toBe(PREGUNTA_HORARIO);
+      expect(r).toBe(MSG_COTIZACION_GP8500E);
       expect(mocks.interpretarRespuestaGenerador).not.toHaveBeenCalled();
       expect(mocks.setConversation).toHaveBeenCalledWith(
         "5215550000000",
         expect.objectContaining({
           data: expect.objectContaining({
             gen_equipos: "Refrigerador y 2 minisplit",
+            gen_modelo: "gp8500e",
+            genStep: "cotizacion",
+          }),
+        }),
+      );
+    });
+
+    it('"me interesa" en cotizacion avanza a horario', async () => {
+      mocks.getConversation.mockResolvedValue({
+        state: "inicio",
+        name: null,
+        nss: null,
+        lead_id: "lead-1",
+        data: {
+          genStep: "cotizacion",
+          gen_tipo: "residencial",
+          gen_equipos: "Refrigerador y 2 minisplit",
+          gen_modelo: "gp8500e",
+        },
+      });
+
+      const r = await procesarYEvolucionarGeneradores({
+        phone: "5215550000000",
+        textoUsuario: "me interesa",
+      });
+
+      expect(r).toBe(PREGUNTA_HORARIO);
+      expect(mocks.interpretarRespuestaGenerador).not.toHaveBeenCalled();
+      expect(mocks.setConversation).toHaveBeenCalledWith(
+        "5215550000000",
+        expect.objectContaining({
+          data: expect.objectContaining({
+            gen_interes: "si",
             genStep: "horario",
           }),
         }),

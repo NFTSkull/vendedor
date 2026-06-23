@@ -18,7 +18,50 @@ const MSG_CIERRE =
 const MSG_POST_FINALIZADO =
   "Gracias a usted, en un momento le contactamos. ⚡";
 
-type GenStep = "tipo" | "equipos" | "horario";
+const MSG_DESINTERES =
+  "Entendido, no hay problema. Si en algún momento decides retomar el tema, aquí estaremos. ¡Que tenga buen día! 😊";
+
+const MSG_REENGAGEMENT =
+  "Hola, ¿sigues interesado en proteger tu hogar con un generador? Podemos ayudarte a encontrar la opción ideal. ⚡";
+
+const CATALOGO_GENERADORES = {
+  gp3600: {
+    modelo: "GENERAC GP3600 110V",
+    precio: "$12,186.00",
+    msg: "Buenas tardes.\nPara respaldar electrodomésticos, iluminación y refrigerador puede ser suficiente un generador GENERAC GP3600 110V.\nPrecio: $12,186.00 💡",
+  },
+  gp6500: {
+    modelo: "GENERAC GP6500 110V/220V 2 fases",
+    precio: "$21,270.00",
+    msg: "Buenas tardes.\nPara respaldar electrodomésticos, iluminación y un minisplit puede ser suficiente un generador GENERAC GP6500 110V/220V 2 fases.\nPrecio: $21,270.00 ❄️",
+  },
+  gp8500e: {
+    modelo: "GENERAC GP8500E 110V/220V 2 fases",
+    precio: "$23,000.00",
+    msg: "Buenas tardes.\nPara respaldar electrodomésticos, iluminación y dos minisplits puede ser suficiente un generador GENERAC GP8500E 110V/220V 2 fases.\nPrecio: $23,000.00 ❄️❄️",
+  },
+} as const;
+
+type ModeloKey = keyof typeof CATALOGO_GENERADORES;
+
+const MSG_DESGLOSE_COMPLETO = `Buenas tardes.
+Aquí te comparto las opciones según lo que necesites respaldar:
+
+1️⃣ GENERAC GP3600 110V — $12,186.00
+   Cubre: electrodomésticos básicos, iluminación y refrigerador.
+
+2️⃣ GENERAC GP6500 110V/220V 2 fases — $21,270.00
+   Cubre: electrodomésticos, iluminación y 1 minisplit.
+
+3️⃣ GENERAC GP8500E 110V/220V 2 fases — $23,000.00
+   Cubre: electrodomésticos, iluminación y 2 minisplits.
+
+¿Cuál se ajusta mejor a lo que necesitas?`;
+
+const MSG_PRECIO_GENERICO =
+  "Los generadores para uso residencial rondan entre $12,186 y $23,000 dependiendo de lo que quieras respaldar.\n\nTenemos desde opciones para refrigerador y lo básico del hogar ($12,186) hasta modelos que cubren minisplit y todos los electrodomésticos ($23,000).\n\n¿Qué equipos te interesa respaldar?";
+
+type GenStep = "tipo" | "equipos" | "cotizacion" | "horario";
 
 /** Sin letras ni dígitos → no es respuesta utilizable al paso */
 function esContenidoInsignificante(texto: string): boolean {
@@ -27,7 +70,12 @@ function esContenidoInsignificante(texto: string): boolean {
 
 function genStepDeData(data: Record<string, unknown> | undefined): GenStep | null {
   const step = data?.genStep;
-  if (step === "tipo" || step === "equipos" || step === "horario") {
+  if (
+    step === "tipo" ||
+    step === "equipos" ||
+    step === "cotizacion" ||
+    step === "horario"
+  ) {
     return step;
   }
   return null;
@@ -70,6 +118,75 @@ const PATRONES_TIPO_INDUSTRIAL: RegExp[] = [
 
 function coincideAlguno(texto: string, patrones: RegExp[]): boolean {
   return patrones.some((p) => p.test(texto));
+}
+
+export function detectarEquiposEnTexto(
+  texto: string,
+): ModeloKey | "desglose" | "precio" | null {
+  const n = texto
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  const soloPrecio =
+    /\b(precio|cuanto cuesta|cuanto vale|costo|cuanto cobran|cuanto es)\b/.test(
+      n,
+    ) &&
+    !/\b(minisplit|mini split|aire|refrigerador|refri|toda|todo|casa|hogar)\b/.test(
+      n,
+    );
+  if (soloPrecio) return "precio";
+
+  const todoLaCasa =
+    /\b(toda la casa|todo el hogar|todo|toda|completo|completa|general|no se|no sé|no tengo idea|basico|básico)\b/.test(
+      n,
+    );
+  if (todoLaCasa) return "desglose";
+
+  const dosMinisplit =
+    /\b(dos|2)\s*(minisplit|mini\s*split|aires|minisplits)\b/.test(n) ||
+    /\bminisplits\b/.test(n);
+  if (dosMinisplit) return "gp8500e";
+
+  const unMinisplit =
+    /\b(un|1|el|mi)\s*(minisplit|mini\s*split|aire)\b/.test(n) ||
+    /\b(minisplit|mini\s*split|aire acondicionado)\b/.test(n);
+  if (unMinisplit) return "gp6500";
+
+  const refri =
+    /\b(refrigerador|refri|nevera|heladera)\b/.test(n) ||
+    /\b(lo basico|basico|basica|iluminacion|luces?|electrodomesticos? basicos?)\b/.test(
+      n,
+    );
+  if (refri) return "gp3600";
+
+  return null;
+}
+
+export function detectarInteresEnTexto(
+  texto: string,
+): "interes" | "desinteres" | null {
+  const n = texto
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  const desinteres =
+    /\b(caro|muy caro|sale caro|es caro|esta caro|esta muy caro|no me interesa|no gracias|no por ahora|no tengo presupuesto|fuera de mi presupuesto|no puedo|lo pensare|lo pensaré|despues|después|ahorita no|ya no|no quiero)\b/.test(
+      n,
+    );
+  if (desinteres) return "desinteres";
+
+  const interes =
+    /\b(me interesa|si me interesa|si quiero|quiero|perfecto|excelente|bien|ok|okay|dale|adelante|como le hago|cuando|a que hora|que sigue|procedemos|lo quiero|me gusta|suena bien|esta bien|como procedo)\b/.test(
+      n,
+    ) ||
+    /^(si|sí|yes|claro|orale|órale|va)\b/.test(n);
+  if (interes) return "interes";
+
+  return null;
 }
 
 /** Detección determinística de tipo antes de Claude. */
@@ -115,7 +232,7 @@ type ResultadoAnalisis =
 
 async function analizarPasoGenerador(args: {
   phone: string;
-  genStep: GenStep;
+  genStep: "tipo" | "equipos" | "horario";
   texto: string;
 }): Promise<ResultadoAnalisis> {
   const preguntaActual = preguntaPorGenStep(args.genStep);
@@ -236,6 +353,36 @@ async function esperarInterpretacionConTimeout(
   ]);
 }
 
+async function manejarCotizacion(
+  phone: string,
+  conv: ConversationValue,
+  resultado: ModeloKey | "desglose" | "precio",
+  textoOriginal: string,
+): Promise<string> {
+  let mensajeCotizacion: string;
+  let modeloGuardado: string;
+
+  if (resultado === "desglose") {
+    mensajeCotizacion = MSG_DESGLOSE_COMPLETO;
+    modeloGuardado = "desglose";
+  } else if (resultado === "precio") {
+    mensajeCotizacion = MSG_PRECIO_GENERICO;
+    modeloGuardado = "precio";
+  } else {
+    mensajeCotizacion = CATALOGO_GENERADORES[resultado].msg;
+    modeloGuardado = resultado;
+  }
+
+  await persistirPaso(phone, conv, {
+    ...(conv.data ?? {}),
+    gen_equipos: textoOriginal,
+    gen_modelo: modeloGuardado,
+    genStep: "cotizacion",
+  });
+
+  return mensajeCotizacion;
+}
+
 export async function procesarYEvolucionarGeneradores(args: {
   phone: string;
   textoUsuario: string;
@@ -306,34 +453,107 @@ export async function procesarYEvolucionarGeneradores(args: {
   }
 
   if (genStep === "equipos") {
+    const equiposDetectado = detectarEquiposEnTexto(texto);
+    if (equiposDetectado) {
+      return manejarCotizacion(phone, conv, equiposDetectado, texto);
+    }
+
     const equiposDirecto = detectarEquiposDirectoEnTexto(texto);
     if (equiposDirecto) {
-      await persistirPaso(phone, conv, {
-        ...(conv.data ?? {}),
-        gen_equipos: equiposDirecto,
-        genStep: "horario",
-      });
-      return PREGUNTA_HORARIO;
+      const reDetectado = detectarEquiposEnTexto(equiposDirecto);
+      return manejarCotizacion(
+        phone,
+        conv,
+        reDetectado ?? "desglose",
+        equiposDirecto,
+      );
     }
 
     const resultado = await analizarPasoGenerador({ phone, genStep, texto });
     if (resultado.accion === "repetir") {
       return resultado.respuesta;
     }
-    if (resultado.accion === "avanzar_con_retomo") {
+    const valorFinal = resultado.valor;
+    const reDetectado = detectarEquiposEnTexto(valorFinal);
+    return manejarCotizacion(phone, conv, reDetectado ?? "desglose", valorFinal);
+  }
+
+  if (genStep === "cotizacion") {
+    const reaccion = detectarInteresEnTexto(texto);
+
+    if (reaccion === "desinteres") {
+      await actualizarLeadPorConversacion(phone, {
+        estado: "no_interesado",
+        nota: `Generador — Uso: ${conv.data?.gen_tipo ?? "N/D"}. Equipos: ${conv.data?.gen_equipos ?? "N/D"}. Modelo: ${conv.data?.gen_modelo ?? "N/D"}. Cliente indicó desinterés por precio.`,
+      });
+      await setConversation(phone, {
+        state: "finalizado",
+        lead_id: conv.lead_id,
+        nss: conv.nss,
+        producto: conv.producto,
+        data: { ...(conv.data ?? {}), gen_interes: "no" },
+      });
+      return MSG_DESINTERES;
+    }
+
+    if (reaccion === "interes") {
       await persistirPaso(phone, conv, {
         ...(conv.data ?? {}),
-        gen_equipos: resultado.valor,
+        gen_interes: "si",
         genStep: "horario",
       });
-      return resultado.respuesta;
+      return PREGUNTA_HORARIO;
     }
-    await persistirPaso(phone, conv, {
-      ...(conv.data ?? {}),
-      gen_equipos: resultado.valor,
-      genStep: "horario",
-    });
-    return PREGUNTA_HORARIO;
+
+    if (claudeDisponible()) {
+      const modeloActual = conv.data?.gen_modelo;
+      const precioActual =
+        typeof modeloActual === "string" && modeloActual in CATALOGO_GENERADORES
+          ? CATALOGO_GENERADORES[modeloActual as ModeloKey].precio
+          : "$12,186–$23,000";
+
+      const interp = await interpretarRespuestaGenerador({
+        phone,
+        genStep: "equipos",
+        preguntaActual: `El cliente acaba de ver la cotización (${precioActual}). ¿Muestra interés en continuar o desinterés por el precio?`,
+        textoUsuario: texto,
+      });
+
+      if (interp?.tipo === "valida") {
+        const val = (interp.valorNormalizado ?? "").toLowerCase();
+        if (val.includes("desinteres") || val === "no") {
+          await actualizarLeadPorConversacion(phone, {
+            estado: "no_interesado",
+            nota: `Generador — Uso: ${conv.data?.gen_tipo ?? "N/D"}. Equipos: ${conv.data?.gen_equipos ?? "N/D"}. Modelo: ${conv.data?.gen_modelo ?? "N/D"}. Cliente indicó desinterés.`,
+          });
+          await setConversation(phone, {
+            state: "finalizado",
+            lead_id: conv.lead_id,
+            nss: conv.nss,
+            producto: conv.producto,
+            data: { ...(conv.data ?? {}), gen_interes: "no" },
+          });
+          return MSG_DESINTERES;
+        }
+        await persistirPaso(phone, conv, {
+          ...(conv.data ?? {}),
+          gen_interes: "si",
+          genStep: "horario",
+        });
+        return PREGUNTA_HORARIO;
+      }
+
+      if (interp?.tipo === "fuera_tema" && interp.respuestaRetomo) {
+        return interp.respuestaRetomo;
+      }
+    }
+
+    const modeloActual = conv.data?.gen_modelo;
+    const precioMostrado =
+      typeof modeloActual === "string" && modeloActual in CATALOGO_GENERADORES
+        ? CATALOGO_GENERADORES[modeloActual as ModeloKey].precio
+        : "$12,186–$23,000";
+    return `¿Te gustaría que un asesor te contacte para darte más información? El generador ronda los ${precioMostrado} 😊`;
   }
 
   const resultado = await analizarPasoGenerador({ phone, genStep: "horario", texto });
@@ -373,4 +593,12 @@ export async function procesarYEvolucionarGeneradores(args: {
   });
 
   return MSG_CIERRE;
+}
+
+export function getMsgReengagement(): string {
+  return MSG_REENGAGEMENT;
+}
+
+export function debeMandarsReengagement(conv: ConversationValue): boolean {
+  return conv.data?.genStep === "cotizacion" && conv.state !== "finalizado";
 }

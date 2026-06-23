@@ -340,7 +340,19 @@ export async function POST(req: NextRequest): Promise<Response> {
       }
     }
 
-    if (leadChat?.estado === "contactado") {
+    const leadFresh = await buscarLeadPorTelefono(m.from);
+    if (leadFresh?.estado === "contactado") {
+      await flushHistorialPendiente();
+      try {
+        await enviarPushNuevoMensaje({
+          leadId: leadFresh.id,
+          telefono: leadFresh.whatsapp_phone,
+          mensaje: textoProcesar,
+          advisorId: leadFresh.advisor_id ?? null,
+        });
+      } catch (err) {
+        console.error("[webhook] Error push mensaje en lead contactado:", err);
+      }
       continue;
     }
 
