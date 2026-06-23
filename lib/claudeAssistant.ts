@@ -290,10 +290,16 @@ const SYSTEM_PROMPT_GENERADORES = `Eres el asistente de Energrum en WhatsApp, ca
 
 Clasifica en uno de estos tipos:
 - "valida": el cliente respondió la pregunta actual de forma utilizable. Devuelve "valorNormalizado" con la respuesta limpia.
-- "fuera_tema": el cliente hizo una pregunta (precio, tiempos, dudas) o habló de algo no relacionado. Devuelve "respuestaRetomo" con una frase breve, cordial y útil que conteste mínimamente si puedes y SIEMPRE reformule la pregunta pendiente.
+- "fuera_tema": el cliente hizo una pregunta (precio, tiempos, dudas) o habló de algo no relacionado SIN responder la pregunta del paso actual. Devuelve "respuestaRetomo" con una frase breve, cordial y útil que conteste mínimamente si puedes y SIEMPRE reformule la pregunta pendiente.
 - "agradece": el cliente solo agradece o se despide sin aportar dato nuevo.
 
-Reglas:
+Reglas importantes:
+- Si el cliente responde la pregunta del paso actual PERO también hace otra pregunta o comentario extra, clasifica como "valida" y extrae valorNormalizado. La pregunta extra del cliente se contestará implícitamente al avanzar. Ejemplo: cliente dice "Residencial, me puedes cotizar" en paso tipo → clasifica valida, valorNormalizado="residencial". NO clasifiques fuera_tema.
+- Solo clasifica fuera_tema si el cliente NO respondió la pregunta del paso actual y solo preguntó algo no relacionado. Ejemplo: "cuánto cuesta un generador?" en paso tipo (sin decir residencial/industrial) → fuera_tema.
+- En respuestaRetomo de fuera_tema, repite EXACTAMENTE la pregunta del paso actual (la que te pasa el sistema en preguntaActual). NUNCA anticipes la pregunta del siguiente paso, eso causa confusión.
+- Si clasificas fuera_tema pero el cliente SÍ incluyó el dato del paso actual en su mensaje, incluye también valorNormalizado con ese dato (campo opcional).
+
+Reglas generales:
 - Nunca uses emojis
 - Respuestas profesionales y cordiales
 - Máximo 2 líneas en respuestaRetomo
@@ -326,8 +332,8 @@ ${args.textoUsuario}
 Devuelve SOLO JSON válido (sin markdown) con esta forma:
 {
   "tipo": "valida" | "fuera_tema" | "agradece",
-  "valorNormalizado": "solo si tipo es valida: respuesta limpia y utilizable",
-  "respuestaRetomo": "solo si tipo es fuera_tema: frase breve + reformular la pregunta pendiente"
+  "valorNormalizado": "si tipo es valida: respuesta limpia; si fuera_tema pero detectaste el dato del paso en el mensaje: inclúyelo también (opcional)",
+  "respuestaRetomo": "solo si tipo es fuera_tema: frase breve + repetir EXACTAMENTE preguntaActual"
 }`;
 
   try {

@@ -39,13 +39,79 @@ function preguntaPorGenStep(genStep: GenStep): string {
   return PREGUNTA_HORARIO;
 }
 
+function preguntaSiguientePorGenStep(genStep: GenStep): string | null {
+  if (genStep === "tipo") return PREGUNTA_EQUIPOS;
+  if (genStep === "equipos") return PREGUNTA_HORARIO;
+  return null;
+}
+
 function respuestaAgradecePendiente(preguntaActual: string): string {
   return `¡Con gusto! Solo para terminar: ${preguntaActual}`;
 }
 
+const PATRONES_TIPO_RESIDENCIAL: RegExp[] = [
+  /\bresidencial\b/i,
+  /\bhogar\b/i,
+  /\bdepa\b/i,
+  /\bdepartamento\b/i,
+  /\bcasa\b/i,
+  /mi\s+casa/i,
+];
+
+const PATRONES_TIPO_INDUSTRIAL: RegExp[] = [
+  /\bindustrial\b/i,
+  /\bf[aá]brica\b/i,
+  /\bnegocio\b/i,
+  /\bcomercio\b/i,
+  /\bempresa\b/i,
+  /\btaller\b/i,
+  /\bbodega\b/i,
+];
+
+function coincideAlguno(texto: string, patrones: RegExp[]): boolean {
+  return patrones.some((p) => p.test(texto));
+}
+
+/** Detección determinística de tipo antes de Claude. */
+export function detectarTipoDirectoEnTexto(
+  texto: string,
+): "residencial" | "industrial" | null {
+  const t = texto.trim();
+  if (!t) return null;
+
+  const esResidencial = coincideAlguno(t, PATRONES_TIPO_RESIDENCIAL);
+  const esIndustrial = coincideAlguno(t, PATRONES_TIPO_INDUSTRIAL);
+
+  if (esResidencial && esIndustrial) return null;
+  if (esResidencial) return "residencial";
+  if (esIndustrial) return "industrial";
+  return null;
+}
+
+/**
+ * Detección conservadora de lista de equipos (solo casos claros).
+ * Requiere conector de lista y al menos un indicio de equipo/cantidad.
+ */
+export function detectarEquiposDirectoEnTexto(texto: string): string | null {
+  const t = texto.trim();
+  if (t.length < 8) return null;
+
+  const tieneConectorLista = /,|\s+y\s+|\s+m[aá]s\s+/i.test(t);
+  if (!tieneConectorLista) return null;
+
+  const pareceListaEquipos =
+    /\b(minisplit|mini\s*split|aire|refrigerador|lavadora|computadora|luz|bombas?|equipos?|b[aá]sicos?|\d+\s+[\p{L}\p{N}])/iu.test(
+      t,
+    );
+  if (!pareceListaEquipos) return null;
+
+  return t;
+}
+
 type ResultadoAnalisis =
   | { accion: "avanzar"; valor: string }
-  | { accion: "repetir"; respuesta: string };
+  | { accion: "repetir"; respuesta: string }
+  | { accion: "avanzar_con_retomo"; valor: string; respuesta: string };
 
 async function analizarPasoGenerador(args: {
   phone: string;
@@ -84,6 +150,13 @@ async function analizarPasoGenerador(args: {
   }
 
   if (interp.tipo === "fuera_tema") {
+    const valorExtra = interp.valorNormalizado?.trim();
+    if (valorExtra) {
+      const retomo = interp.respuestaRetomo?.trim() || preguntaActual;
+      const siguiente = preguntaSiguientePorGenStep(args.genStep);
+      const respuesta = siguiente ? `${retomo} ${siguiente}` : retomo;
+      return { accion: "avanzar_con_retomo", valor: valorExtra, respuesta };
+    }
     return {
       accion: "repetir",
       respuesta: interp.respuestaRetomo?.trim() || preguntaActual,
@@ -202,8 +275,26 @@ export async function procesarYEvolucionarGeneradores(args: {
   }
 
   if (genStep === "tipo") {
+    const tipoDirecto = detectarTipoDirectoEnTexto(texto);
+    if (tipoDirecto) {
+      await persistirPaso(phone, conv, {
+        ...(conv.data ?? {}),
+        gen_tipo: tipoDirecto,
+        genStep: "equipos",
+      });
+      return PREGUNTA_EQUIPOS;
+    }
+
     const resultado = await analizarPasoGenerador({ phone, genStep, texto });
     if (resultado.accion === "repetir") {
+      return resultado.respuesta;
+    }
+    if (resultado.accion === "avanzar_con_retomo") {
+      await persistirPaso(phone, conv, {
+        ...(conv.data ?? {}),
+        gen_tipo: resultado.valor,
+        genStep: "equipos",
+      });
       return resultado.respuesta;
     }
     await persistirPaso(phone, conv, {
@@ -215,8 +306,26 @@ export async function procesarYEvolucionarGeneradores(args: {
   }
 
   if (genStep === "equipos") {
+    const equiposDirecto = detectarEquiposDirectoEnTexto(texto);
+    if (equiposDirecto) {
+      await persistirPaso(phone, conv, {
+        ...(conv.data ?? {}),
+        gen_equipos: equiposDirecto,
+        genStep: "horario",
+      });
+      return PREGUNTA_HORARIO;
+    }
+
     const resultado = await analizarPasoGenerador({ phone, genStep, texto });
     if (resultado.accion === "repetir") {
+      return resultado.respuesta;
+    }
+    if (resultado.accion === "avanzar_con_retomo") {
+      await persistirPaso(phone, conv, {
+        ...(conv.data ?? {}),
+        gen_equipos: resultado.valor,
+        genStep: "horario",
+      });
       return resultado.respuesta;
     }
     await persistirPaso(phone, conv, {

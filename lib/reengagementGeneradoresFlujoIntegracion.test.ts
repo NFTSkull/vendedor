@@ -225,10 +225,6 @@ describe("escenario completo: recordatorio en equipos → usuario responde", () 
       producto: "generadores",
       data: { ...convsEnDb[0].data },
     });
-    mocks.interpretarRespuestaGenerador.mockResolvedValue({
-      tipo: "valida",
-      valorNormalizado: "aires y refrigeración",
-    });
 
     const botRes = await procesarYEvolucionarGeneradores({
       phone: PHONE,
@@ -236,13 +232,14 @@ describe("escenario completo: recordatorio en equipos → usuario responde", () 
     });
 
     expect(botRes).toBe(PREGUNTA_HORARIO);
+    expect(mocks.interpretarRespuestaGenerador).not.toHaveBeenCalled();
     expect(mocks.setConversation).toHaveBeenCalledWith(
       PHONE,
       expect.objectContaining({
         data: expect.objectContaining({
           genStep: "horario",
           gen_tipo: "uso industrial",
-          gen_equipos: "aires y refrigeración",
+          gen_equipos: "los aires acondicionados y el refrigerador",
         }),
       }),
     );

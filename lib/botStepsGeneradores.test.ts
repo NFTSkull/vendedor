@@ -29,6 +29,8 @@ vi.mock("@/lib/interpretarHorarioContacto", () => ({
 
 import { procesarYEvolucionarGeneradores } from "@/lib/botStepsGeneradores";
 
+const PREGUNTA_TIPO = "¿El generador es para uso industrial o residencial?";
+const PREGUNTA_EQUIPOS = "¿Qué equipos necesitas respaldar?";
 const PREGUNTA_HORARIO = "¿En qué día y horario te podemos contactar?";
 
 describe("procesarYEvolucionarGeneradores", () => {
@@ -76,22 +78,19 @@ describe("procesarYEvolucionarGeneradores", () => {
       lead_id: "lead-1",
       data: { genStep: "tipo" },
     });
-    mocks.interpretarRespuestaGenerador.mockResolvedValue({
-      tipo: "valida",
-      valorNormalizado: "uso industrial",
-    });
 
     const r = await procesarYEvolucionarGeneradores({
       phone: "5215550000000",
       textoUsuario: "es para mi fábrica",
     });
 
-    expect(r).toBe("¿Qué equipos necesitas respaldar?");
+    expect(r).toBe(PREGUNTA_EQUIPOS);
+    expect(mocks.interpretarRespuestaGenerador).not.toHaveBeenCalled();
     expect(mocks.setConversation).toHaveBeenCalledWith(
       "5215550000000",
       expect.objectContaining({
         data: expect.objectContaining({
-          gen_tipo: "uso industrial",
+          gen_tipo: "industrial",
           genStep: "equipos",
         }),
       }),
@@ -305,5 +304,210 @@ describe("procesarYEvolucionarGeneradores", () => {
       expect(mocks.interpretarRespuestaGenerador).not.toHaveBeenCalled();
       expect(mocks.setConversation).not.toHaveBeenCalled();
     }
+  });
+
+  describe("detección determinística tipo (antes de Claude)", () => {
+    it('"Residencial, me puedes cotizar por favor" avanza sin Claude', async () => {
+      mocks.getConversation.mockResolvedValue({
+        state: "inicio",
+        name: null,
+        nss: null,
+        lead_id: "lead-1",
+        data: { genStep: "tipo" },
+      });
+
+      const r = await procesarYEvolucionarGeneradores({
+        phone: "5215550000000",
+        textoUsuario: "Residencial, me puedes cotizar por favor",
+      });
+
+      expect(r).toBe(PREGUNTA_EQUIPOS);
+      expect(mocks.interpretarRespuestaGenerador).not.toHaveBeenCalled();
+      expect(mocks.setConversation).toHaveBeenCalledWith(
+        "5215550000000",
+        expect.objectContaining({
+          data: expect.objectContaining({
+            gen_tipo: "residencial",
+            genStep: "equipos",
+          }),
+        }),
+      );
+    });
+
+    it('"Industrial" solo avanza', async () => {
+      mocks.getConversation.mockResolvedValue({
+        state: "inicio",
+        name: null,
+        nss: null,
+        lead_id: "lead-1",
+        data: { genStep: "tipo" },
+      });
+
+      const r = await procesarYEvolucionarGeneradores({
+        phone: "5215550000000",
+        textoUsuario: "Industrial",
+      });
+
+      expect(r).toBe(PREGUNTA_EQUIPOS);
+      expect(mocks.interpretarRespuestaGenerador).not.toHaveBeenCalled();
+      expect(mocks.setConversation).toHaveBeenCalledWith(
+        "5215550000000",
+        expect.objectContaining({
+          data: expect.objectContaining({ gen_tipo: "industrial" }),
+        }),
+      );
+    });
+
+    it('"Para mi casa" infiere residencial', async () => {
+      mocks.getConversation.mockResolvedValue({
+        state: "inicio",
+        name: null,
+        nss: null,
+        lead_id: "lead-1",
+        data: { genStep: "tipo" },
+      });
+
+      const r = await procesarYEvolucionarGeneradores({
+        phone: "5215550000000",
+        textoUsuario: "Para mi casa",
+      });
+
+      expect(r).toBe(PREGUNTA_EQUIPOS);
+      expect(mocks.interpretarRespuestaGenerador).not.toHaveBeenCalled();
+      expect(mocks.setConversation).toHaveBeenCalledWith(
+        "5215550000000",
+        expect.objectContaining({
+          data: expect.objectContaining({ gen_tipo: "residencial" }),
+        }),
+      );
+    });
+
+    it('"Para mi fábrica" infiere industrial', async () => {
+      mocks.getConversation.mockResolvedValue({
+        state: "inicio",
+        name: null,
+        nss: null,
+        lead_id: "lead-1",
+        data: { genStep: "tipo" },
+      });
+
+      const r = await procesarYEvolucionarGeneradores({
+        phone: "5215550000000",
+        textoUsuario: "Para mi fábrica",
+      });
+
+      expect(r).toBe(PREGUNTA_EQUIPOS);
+      expect(mocks.interpretarRespuestaGenerador).not.toHaveBeenCalled();
+      expect(mocks.setConversation).toHaveBeenCalledWith(
+        "5215550000000",
+        expect.objectContaining({
+          data: expect.objectContaining({ gen_tipo: "industrial" }),
+        }),
+      );
+    });
+
+    it('"Cuánto cuesta?" en tipo → fuera_tema sin avanzar', async () => {
+      mocks.getConversation.mockResolvedValue({
+        state: "inicio",
+        name: null,
+        nss: null,
+        lead_id: "lead-1",
+        data: { genStep: "tipo" },
+      });
+      mocks.interpretarRespuestaGenerador.mockResolvedValue({
+        tipo: "fuera_tema",
+        respuestaRetomo: PREGUNTA_TIPO,
+      });
+
+      const r = await procesarYEvolucionarGeneradores({
+        phone: "5215550000000",
+        textoUsuario: "Cuánto cuesta?",
+      });
+
+      expect(r).toBe(PREGUNTA_TIPO);
+      expect(mocks.interpretarRespuestaGenerador).toHaveBeenCalledOnce();
+      expect(mocks.setConversation).not.toHaveBeenCalled();
+    });
+
+    it("residencial e industrial en el mismo mensaje delega a Claude", async () => {
+      mocks.getConversation.mockResolvedValue({
+        state: "inicio",
+        name: null,
+        nss: null,
+        lead_id: "lead-1",
+        data: { genStep: "tipo" },
+      });
+      mocks.interpretarRespuestaGenerador.mockResolvedValue({
+        tipo: "valida",
+        valorNormalizado: "mixto",
+      });
+
+      await procesarYEvolucionarGeneradores({
+        phone: "5215550000000",
+        textoUsuario: "Es residencial e industrial",
+      });
+
+      expect(mocks.interpretarRespuestaGenerador).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe("detección determinística equipos", () => {
+    it('"Refrigerador y 2 minisplit" avanza a horario sin Claude', async () => {
+      mocks.getConversation.mockResolvedValue({
+        state: "inicio",
+        name: null,
+        nss: null,
+        lead_id: "lead-1",
+        data: { genStep: "equipos", gen_tipo: "residencial" },
+      });
+
+      const r = await procesarYEvolucionarGeneradores({
+        phone: "5215550000000",
+        textoUsuario: "Refrigerador y 2 minisplit",
+      });
+
+      expect(r).toBe(PREGUNTA_HORARIO);
+      expect(mocks.interpretarRespuestaGenerador).not.toHaveBeenCalled();
+      expect(mocks.setConversation).toHaveBeenCalledWith(
+        "5215550000000",
+        expect.objectContaining({
+          data: expect.objectContaining({
+            gen_equipos: "Refrigerador y 2 minisplit",
+            genStep: "horario",
+          }),
+        }),
+      );
+    });
+  });
+
+  it("fuera_tema con valorNormalizado avanza y concatena siguiente pregunta", async () => {
+    mocks.getConversation.mockResolvedValue({
+      state: "inicio",
+      name: null,
+      nss: null,
+      lead_id: "lead-1",
+      data: { genStep: "tipo" },
+    });
+    mocks.interpretarRespuestaGenerador.mockResolvedValue({
+      tipo: "fuera_tema",
+      valorNormalizado: "residencial",
+      respuestaRetomo: "Te cotizamos en la llamada.",
+    });
+
+    const r = await procesarYEvolucionarGeneradores({
+      phone: "5215550000000",
+      textoUsuario: "algo ambiguo sin keyword",
+    });
+
+    expect(r).toBe(`Te cotizamos en la llamada. ${PREGUNTA_EQUIPOS}`);
+    expect(mocks.setConversation).toHaveBeenCalledWith(
+      "5215550000000",
+      expect.objectContaining({
+        data: expect.objectContaining({
+          gen_tipo: "residencial",
+          genStep: "equipos",
+        }),
+      }),
+    );
   });
 });
