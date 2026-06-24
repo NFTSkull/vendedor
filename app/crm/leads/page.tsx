@@ -982,7 +982,7 @@ export default function CrmLeadsPage() {
                             >
                               <span className="inline-flex min-w-0 items-center">
                                 {formatearTelefonoDisplay(lead.whatsapp_phone)}
-                                {lead.tiene_mensaje_nuevo ? (
+                                {lead.ultimo_mensaje_direccion === "entrante" ? (
                                   <span
                                     style={{
                                       display: "inline-block",
