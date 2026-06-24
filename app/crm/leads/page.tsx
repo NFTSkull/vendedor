@@ -63,6 +63,7 @@ type Lead = {
   ultimo_mensaje_fecha: string | null;
   ultimo_mensaje_direccion: "entrante" | "saliente" | null;
   ultima_actividad_at: string;
+  tiene_mensaje_nuevo?: boolean;
 };
 
 function indicadorEstadoClase(estado: LeadEstado): string {
@@ -254,6 +255,17 @@ export default function CrmLeadsPage() {
 
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [actionAviso, setActionAviso] = useState("");
+  const [showBroadcast, setShowBroadcast] = useState(false);
+  const [broadcastMensaje, setBroadcastMensaje] = useState("");
+  const [broadcastPreview, setBroadcastPreview] = useState<{
+    total: number;
+    leads: { id: string; telefono: string; estado: string }[];
+  } | null>(null);
+  const [broadcastLoading, setBroadcastLoading] = useState(false);
+  const [broadcastResult, setBroadcastResult] = useState<{
+    enviados: number;
+    fallidos: number;
+  } | null>(null);
   const [undoBar, setUndoBar] = useState<{
     leadId: string;
     previousEstado: LeadEstado;
@@ -458,6 +470,51 @@ export default function CrmLeadsPage() {
     } finally {
       setLoading(false);
       setRecargando(false);
+    }
+  }
+
+  async function cargarBroadcastPreview() {
+    const token = localStorage.getItem("crm_token");
+    if (!token) return;
+    try {
+      const res = await fetch(
+        `/api/crm/leads/broadcast?producto=${tabActiva}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const data = await res.json();
+      setBroadcastPreview(data);
+    } catch {
+      setBroadcastPreview(null);
+    }
+  }
+
+  async function enviarBroadcast() {
+    if (!broadcastMensaje.trim() || broadcastLoading) return;
+    const token = localStorage.getItem("crm_token");
+    if (!token) return;
+    setBroadcastLoading(true);
+    setBroadcastResult(null);
+    try {
+      const res = await fetch("/api/crm/leads/broadcast", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          mensaje: broadcastMensaje,
+          producto: tabActiva,
+        }),
+      });
+      const data = await res.json();
+      setBroadcastResult({ enviados: data.enviados, fallidos: data.fallidos });
+      setBroadcastMensaje("");
+      // Reload leads after broadcast
+      await cargarLeads({ silencioso: true });
+    } catch {
+      setBroadcastResult({ enviados: 0, fallidos: -1 });
+    } finally {
+      setBroadcastLoading(false);
     }
   }
 
@@ -773,6 +830,27 @@ export default function CrmLeadsPage() {
             })}
           </div>
 
+          <button
+            type="button"
+            onClick={() => {
+              setShowBroadcast(true);
+              setBroadcastResult(null);
+              void cargarBroadcastPreview();
+            }}
+            style={{
+              padding: "8px 16px",
+              backgroundColor: "#7c3aed",
+              color: "white",
+              border: "none",
+              borderRadius: 8,
+              cursor: "pointer",
+              fontWeight: 600,
+              fontSize: 14,
+            }}
+          >
+            📣 Mensaje masivo
+          </button>
+
           {pushMsg ? (
             <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800 ring-1 ring-emerald-200/60">
               {pushMsg}
@@ -902,7 +980,23 @@ export default function CrmLeadsPage() {
                                   : "font-semibold text-slate-800"
                               }`}
                             >
-                              {formatearTelefonoDisplay(lead.whatsapp_phone)}
+                              <span className="inline-flex min-w-0 items-center">
+                                {formatearTelefonoDisplay(lead.whatsapp_phone)}
+                                {lead.tiene_mensaje_nuevo ? (
+                                  <span
+                                    style={{
+                                      display: "inline-block",
+                                      width: 10,
+                                      height: 10,
+                                      borderRadius: "50%",
+                                      backgroundColor: "#22c55e",
+                                      marginLeft: 6,
+                                      flexShrink: 0,
+                                    }}
+                                    title="Mensaje nuevo"
+                                  />
+                                ) : null}
+                              </span>
                             </p>
                             <span
                               className={`mt-0.5 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${claseBadgeEstado(
@@ -1249,6 +1343,146 @@ export default function CrmLeadsPage() {
           </p>
         </div>
       ) : null}
+
+      {showBroadcast && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowBroadcast(false);
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "#1a1a2e",
+              border: "1px solid #333",
+              borderRadius: 12,
+              padding: 24,
+              width: "90%",
+              maxWidth: 480,
+              color: "white",
+            }}
+          >
+            <h3 style={{ margin: "0 0 8px", fontSize: 18 }}>📣 Mensaje masivo</h3>
+
+            {broadcastPreview && !broadcastResult && (
+              <p style={{ color: "#aaa", fontSize: 14, margin: "0 0 16px" }}>
+                Se enviará a{" "}
+                <strong style={{ color: "#22c55e" }}>
+                  {broadcastPreview.total} contactos
+                </strong>{" "}
+                que aún no han sido atendidos por un asesor.
+              </p>
+            )}
+
+            {!broadcastResult ? (
+              <>
+                <textarea
+                  value={broadcastMensaje}
+                  onChange={(e) => setBroadcastMensaje(e.target.value)}
+                  placeholder="Escribe el mensaje que se enviará a todos..."
+                  rows={5}
+                  style={{
+                    width: "100%",
+                    padding: 12,
+                    backgroundColor: "#0d0d1a",
+                    border: "1px solid #444",
+                    borderRadius: 8,
+                    color: "white",
+                    fontSize: 14,
+                    resize: "vertical",
+                    boxSizing: "border-box",
+                  }}
+                />
+                <p style={{ color: "#666", fontSize: 12, margin: "4px 0 16px" }}>
+                  {broadcastMensaje.length}/1000 caracteres
+                </p>
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowBroadcast(false)}
+                    style={{
+                      padding: "8px 16px",
+                      backgroundColor: "#333",
+                      color: "white",
+                      border: "none",
+                      borderRadius: 8,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void enviarBroadcast()}
+                    disabled={
+                      broadcastLoading ||
+                      !broadcastMensaje.trim() ||
+                      (broadcastPreview?.total ?? 0) === 0
+                    }
+                    style={{
+                      padding: "8px 20px",
+                      backgroundColor:
+                        broadcastLoading || !broadcastMensaje.trim()
+                          ? "#555"
+                          : "#7c3aed",
+                      color: "white",
+                      border: "none",
+                      borderRadius: 8,
+                      cursor: broadcastLoading ? "not-allowed" : "pointer",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {broadcastLoading
+                      ? "Enviando..."
+                      : `Enviar a ${broadcastPreview?.total ?? "..."} contactos`}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div style={{ textAlign: "center", padding: "16px 0" }}>
+                {broadcastResult.fallidos === -1 ? (
+                  <p style={{ color: "#ef4444" }}>Error al enviar. Intenta de nuevo.</p>
+                ) : (
+                  <>
+                    <p style={{ fontSize: 32, margin: "0 0 8px" }}>✅</p>
+                    <p style={{ color: "#22c55e", fontWeight: 600, fontSize: 16 }}>
+                      {broadcastResult.enviados} mensajes enviados
+                    </p>
+                    {broadcastResult.fallidos > 0 && (
+                      <p style={{ color: "#f59e0b", fontSize: 14 }}>
+                        {broadcastResult.fallidos} fallidos
+                      </p>
+                    )}
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowBroadcast(false)}
+                  style={{
+                    marginTop: 16,
+                    padding: "8px 24px",
+                    backgroundColor: "#333",
+                    color: "white",
+                    border: "none",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                  }}
+                >
+                  Cerrar
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }

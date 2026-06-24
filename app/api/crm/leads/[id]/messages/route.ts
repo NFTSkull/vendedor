@@ -121,33 +121,11 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
       console.error("[CRM messages POST] Error lead_actions:", actionError);
     }
 
-    if (lead.estado === "nuevo") {
-      const { error: estadoError } = await supabase
-        .from("leads")
-        .update({ estado: "contactado" })
-        .eq("id", leadId);
-
-      if (estadoError) {
-        console.error(
-          "[CRM messages POST] Error actualizando estado a contactado:",
-          estadoError,
-        );
-      } else {
-        const { error: autoActionError } = await supabase.from("lead_actions").insert({
-          lead_id: leadId,
-          advisor_id: auth.sub,
-          accion: "cambio_estado_automatico",
-          nota: "Marcado automáticamente como contactado (asesor envió mensaje)",
-        });
-
-        if (autoActionError) {
-          console.error(
-            "[CRM messages POST] Error lead_actions cambio_estado_automatico:",
-            autoActionError,
-          );
-        }
-      }
-    }
+    // Advisor read/replied → clear unread indicator
+    await supabase
+      .from("leads")
+      .update({ tiene_mensaje_nuevo: false })
+      .eq("id", leadId);
 
     return Response.json({ ok: true }, { status: 200 });
   } catch (err) {

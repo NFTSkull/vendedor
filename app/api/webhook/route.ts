@@ -15,6 +15,7 @@ import { extraerNssOnceDigitos } from "@/lib/nss";
 import { enviarPushNuevoLead, enviarPushNuevoMensaje } from "@/lib/pushNotifications";
 import { extraerTextosEntrantes, payloadDebeIgnorarPorEcos } from "@/lib/parseWhatsAppWebhook";
 import { resolveWhatsAppAccount } from "@/lib/whatsappAccountResolver";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { enviarMensajeTextoWa } from "@/lib/whatsappCloud";
 
 export const runtime = "nodejs";
@@ -323,6 +324,19 @@ export async function POST(req: NextRequest): Promise<Response> {
       console.error("[webhook] Error guardando mensaje entrante:", err);
     }
 
+    // Mark lead as having a new unread message when client writes
+    if (leadChat?.id) {
+      try {
+        const supabase = getSupabaseAdmin();
+        await supabase
+          .from("leads")
+          .update({ tiene_mensaje_nuevo: true })
+          .eq("id", leadChat.id);
+      } catch (err) {
+        console.error("[webhook] Error marcando tiene_mensaje_nuevo (entrante):", err);
+      }
+    }
+
     if (
       leadAntes &&
       leadChat &&
@@ -342,6 +356,17 @@ export async function POST(req: NextRequest): Promise<Response> {
 
     const leadFresh = await buscarLeadPorTelefono(m.from);
     if (leadFresh?.estado === "contactado") {
+      // Mark as unread — client replied after advisor contact (like WhatsApp)
+      try {
+        const supabase = getSupabaseAdmin();
+        await supabase
+          .from("leads")
+          .update({ tiene_mensaje_nuevo: true })
+          .eq("id", leadFresh.id);
+      } catch (err) {
+        console.error("[webhook] Error marcando tiene_mensaje_nuevo:", err);
+      }
+
       await flushHistorialPendiente();
       try {
         await enviarPushNuevoMensaje({

@@ -8,6 +8,7 @@ export type LeadRow = {
   whatsapp_phone: string;
   estado: string;
   advisor_id?: string | null;
+  tiene_mensaje_nuevo?: boolean;
 };
 
 export type MessageRow = {

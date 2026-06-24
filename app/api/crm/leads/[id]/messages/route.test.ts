@@ -78,7 +78,7 @@ describe("POST /api/crm/leads/[id]/messages", () => {
     vi.clearAllMocks();
   });
 
-  it("lead en nuevo + envío exitoso → contactado + ambos lead_actions", async () => {
+  it("lead en nuevo + envío exitoso → limpia tiene_mensaje_nuevo + mensaje_asesor", async () => {
     mocks.maybeSingleLead.mockResolvedValue({
       data: { id: "lead-1", whatsapp_phone: "5215550000000", estado: "nuevo" },
       error: null,
@@ -87,19 +87,13 @@ describe("POST /api/crm/leads/[id]/messages", () => {
     const res = await postMensaje("lead-1", "Hola desde CRM");
 
     expect(res.status).toBe(200);
-    expect(mocks.updateLeadEstado).toHaveBeenCalledWith({ estado: "contactado" });
-    expect(mocks.insertLeadAction).toHaveBeenCalledTimes(2);
-    expect(mocks.insertLeadAction).toHaveBeenNthCalledWith(1, {
+    expect(mocks.updateLeadEstado).toHaveBeenCalledWith({ tiene_mensaje_nuevo: false });
+    expect(mocks.insertLeadAction).toHaveBeenCalledTimes(1);
+    expect(mocks.insertLeadAction).toHaveBeenCalledWith({
       lead_id: "lead-1",
       advisor_id: "advisor-1",
       accion: "mensaje_asesor",
       nota: "Hola desde CRM",
-    });
-    expect(mocks.insertLeadAction).toHaveBeenNthCalledWith(2, {
-      lead_id: "lead-1",
-      advisor_id: "advisor-1",
-      accion: "cambio_estado_automatico",
-      nota: "Marcado automáticamente como contactado (asesor envió mensaje)",
     });
   });
 
@@ -112,7 +106,7 @@ describe("POST /api/crm/leads/[id]/messages", () => {
     const res = await postMensaje("lead-1", "Seguimiento");
 
     expect(res.status).toBe(200);
-    expect(mocks.updateLeadEstado).not.toHaveBeenCalled();
+    expect(mocks.updateLeadEstado).toHaveBeenCalledWith({ tiene_mensaje_nuevo: false });
     expect(mocks.insertLeadAction).toHaveBeenCalledTimes(1);
     expect(mocks.insertLeadAction).toHaveBeenCalledWith({
       lead_id: "lead-1",
@@ -131,7 +125,7 @@ describe("POST /api/crm/leads/[id]/messages", () => {
     const res = await postMensaje("lead-1", "Último intento");
 
     expect(res.status).toBe(200);
-    expect(mocks.updateLeadEstado).not.toHaveBeenCalled();
+    expect(mocks.updateLeadEstado).toHaveBeenCalledWith({ tiene_mensaje_nuevo: false });
     expect(mocks.insertLeadAction).toHaveBeenCalledTimes(1);
     expect(mocks.insertLeadAction).toHaveBeenCalledWith(
       expect.objectContaining({ accion: "mensaje_asesor" }),
