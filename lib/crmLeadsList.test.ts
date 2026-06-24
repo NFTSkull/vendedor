@@ -19,6 +19,7 @@ function leadEnriquecido(args: {
       ultimo_mensaje: string | null;
       ultimo_mensaje_fecha: string | null;
       ultimo_mensaje_direccion: "entrante" | "saliente" | null;
+      tiene_mensaje_sin_leer: boolean;
     }
   >();
 
@@ -27,6 +28,7 @@ function leadEnriquecido(args: {
       ultimo_mensaje: args.ultimo_mensaje ?? "msg",
       ultimo_mensaje_fecha: args.ultimo_mensaje_fecha,
       ultimo_mensaje_direccion: args.ultimo_mensaje_direccion ?? "entrante",
+      tiene_mensaje_sin_leer: args.ultimo_mensaje_direccion !== "saliente",
     });
   }
 
@@ -102,6 +104,7 @@ describe("enriquecerLeadConUltimoMensaje", () => {
           ultimo_mensaje: "Hola",
           ultimo_mensaje_fecha: "2026-06-01T12:00:00Z",
           ultimo_mensaje_direccion: "entrante" as const,
+          tiene_mensaje_sin_leer: true,
         },
       ],
     ]);
@@ -127,6 +130,7 @@ describe("enriquecerLeadConUltimoMensaje", () => {
       ultimo_mensaje_fecha: null,
       ultimo_mensaje_direccion: null,
       ultima_actividad_at: "2026-06-01T10:00:00Z",
+      tiene_mensaje_sin_leer: false,
     });
   });
 });

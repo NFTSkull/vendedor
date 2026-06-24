@@ -64,6 +64,7 @@ type Lead = {
   ultimo_mensaje_direccion: "entrante" | "saliente" | null;
   ultima_actividad_at: string;
   tiene_mensaje_nuevo?: boolean;
+  tiene_mensaje_sin_leer?: boolean;
 };
 
 function indicadorEstadoClase(estado: LeadEstado): string {
@@ -982,7 +983,7 @@ export default function CrmLeadsPage() {
                             >
                               <span className="inline-flex min-w-0 items-center">
                                 {formatearTelefonoDisplay(lead.whatsapp_phone)}
-                                {lead.ultimo_mensaje_direccion === "entrante" ? (
+                                {lead.tiene_mensaje_sin_leer ? (
                                   <span
                                     style={{
                                       display: "inline-block",

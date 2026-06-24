@@ -5,6 +5,7 @@ export type UltimoMensajeLead = {
   ultimo_mensaje_fecha: string | null;
   ultimo_mensaje_direccion: "entrante" | "saliente" | null;
   ultima_actividad_at: string;
+  tiene_mensaje_sin_leer: boolean;
 };
 
 type MensajeRow = {
@@ -38,12 +39,35 @@ export async function mapUltimosMensajesPorLead(
     return map;
   }
 
+  const lastEntrante = new Map<string, MensajeRow>();
+  const lastSaliente = new Map<string, MensajeRow>();
+  const lastAny = new Map<string, MensajeRow>();
+
   for (const row of (data ?? []) as MensajeRow[]) {
-    if (map.has(row.lead_id)) continue;
-    map.set(row.lead_id, {
-      ultimo_mensaje: row.contenido,
-      ultimo_mensaje_fecha: row.created_at,
-      ultimo_mensaje_direccion: row.direccion,
+    if (!lastAny.has(row.lead_id)) lastAny.set(row.lead_id, row);
+    if (row.direccion === "entrante" && !lastEntrante.has(row.lead_id)) {
+      lastEntrante.set(row.lead_id, row);
+    }
+    if (row.direccion === "saliente" && !lastSaliente.has(row.lead_id)) {
+      lastSaliente.set(row.lead_id, row);
+    }
+  }
+
+  for (const [leadId, last] of lastAny.entries()) {
+    const entrante = lastEntrante.get(leadId);
+    const saliente = lastSaliente.get(leadId);
+
+    const tiene_mensaje_sin_leer =
+      entrante != null &&
+      (saliente == null ||
+        new Date(entrante.created_at).getTime() >
+          new Date(saliente.created_at).getTime());
+
+    map.set(leadId, {
+      ultimo_mensaje: last.contenido,
+      ultimo_mensaje_fecha: last.created_at,
+      ultimo_mensaje_direccion: last.direccion,
+      tiene_mensaje_sin_leer,
     });
   }
 
@@ -73,6 +97,7 @@ export function enriquecerLeadConUltimoMensaje<T extends LeadConCreatedAt>(
       ...lead,
       ultimo_mensaje_fecha,
     }),
+    tiene_mensaje_sin_leer: ultimo?.tiene_mensaje_sin_leer ?? false,
   };
 }
 
