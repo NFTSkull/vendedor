@@ -7,7 +7,7 @@ import { getConversation, setConversation } from "@/lib/conversationMemory";
 import { actualizarLeadPorConversacion } from "@/lib/leadProvisional";
 import { interpretarHorarioConClaude } from "@/lib/interpretarHorarioContacto";
 import { esComandoReinicio } from "@/lib/botStepsCore";
-import { esNegativo } from "@/lib/normalizeText";
+import { esNegativo, normalizarTexto } from "@/lib/normalizeText";
 
 const PREGUNTA_TIPO =
   "¿El generador es para uso industrial o residencial?";
@@ -20,6 +20,9 @@ const MSG_POST_FINALIZADO =
 
 const MSG_DESINTERES =
   "Entendido, no hay problema. Si en algún momento decides retomar el tema, aquí estaremos. ¡Que tenga buen día! 😊";
+
+const MSG_PENDIENTE_DECISION =
+  "Entendido, no hay problema. Cuando lo hayan decidido con gusto les atendemos. Si necesitan más información, aquí estamos. ¡Que tengan buen día! 😊";
 
 const MSG_REENGAGEMENT =
   "Hola, ¿sigues interesado en proteger tu hogar con un generador? Podemos ayudarte a encontrar la opción ideal. ⚡";
@@ -104,6 +107,24 @@ const PATRONES_TIPO_RESIDENCIAL: RegExp[] = [
   /\bdepartamento\b/i,
   /\bcasa\b/i,
   /mi\s+casa/i,
+  /casa\s+habitaci[oó]n/i,
+  /\bhabitaci[oó]n\b/i,
+  /\bvivienda\b/i,
+  /\bdomicilio\b/i,
+  /\bpredio\b/i,
+  /\bfinca\b/i,
+  /\branchito\b/i,
+  /\brancho\b/i,
+  /\bcasita\b/i,
+  /\bapartamento\b/i,
+  /\bcondo\b/i,
+  /\bcondominio\b/i,
+  /uso\s+personal/i,
+  /uso\s+doméstico/i,
+  /uso\s+domestico/i,
+  /para\s+mi\s+hogar/i,
+  /en\s+mi\s+casa/i,
+  /de\s+mi\s+casa/i,
 ];
 
 const PATRONES_TIPO_INDUSTRIAL: RegExp[] = [
@@ -145,13 +166,15 @@ export function detectarEquiposEnTexto(
   if (todoLaCasa) return "desglose";
 
   const dosMinisplit =
-    /\b(dos|2)\s*(minisplit|mini\s*split|aires|minisplits)\b/.test(n) ||
-    /\bminisplits\b/.test(n);
+    /\b(dos|2)\s*(minisplit|mini\s*split|aires|minisplits|climas|splits)\b/.test(n) ||
+    /\bminisplits\b/.test(n) ||
+    /\bclimas\b/.test(n) ||
+    /\bsplits\b/.test(n);
   if (dosMinisplit) return "gp8500e";
 
   const unMinisplit =
-    /\b(un|1|el|mi)\s*(minisplit|mini\s*split|aire)\b/.test(n) ||
-    /\b(minisplit|mini\s*split|aire acondicionado)\b/.test(n);
+    /\b(un|1|el|mi)\s*(minisplit|mini\s*split|aire|clima|split)\b/.test(n) ||
+    /\b(minisplit|mini\s*split|aire acondicionado|clima|split)\b/.test(n);
   if (unMinisplit) return "gp6500";
 
   const refri =
@@ -174,7 +197,7 @@ export function detectarInteresEnTexto(
     .replace(/[\u0300-\u036f]/g, "");
 
   const desinteres =
-    /\b(caro|muy caro|sale caro|es caro|esta caro|esta muy caro|no me interesa|no gracias|no por ahora|no tengo presupuesto|fuera de mi presupuesto|no puedo|lo pensare|lo pensaré|despues|después|ahorita no|ya no|no quiero)\b/.test(
+    /\b(caro|muy caro|sale caro|es caro|esta caro|esta muy caro|no me interesa|no gracias|no por ahora|no tengo presupuesto|fuera de mi presupuesto|no puedo|no cuento con|no tengo el dinero|no tengo dinero|sin dinero|no tengo lana|no tengo recursos|por lo pronto no|ahorita no cuento|no alcanza|no me alcanza|lo pensare|lo pensaré|despues|después|ahorita no|ya no|no quiero|solo queria saber|solo quería saber|nada mas queria|nada más quería|solo curiosidad|era curiosidad|solo preguntaba|solo pregunta|le voy a comentar|voy a comentar|lo comento|lo consulto|consultar con|hablar con mi|decirle a mi|preguntarle a|no soy el que decide|no soy quien decide|no decido yo|decide mi|lo decide mi|deja checo|deja que checo|voy a checar|dejame checar|déjame checar|deja chequeo|lo checo|ahorita checo|nomas checo|nomás checo|voy a pensarlo|lo pienso|lo platico)\b/.test(
       n,
     );
   if (desinteres) return "desinteres";
@@ -479,12 +502,55 @@ export async function procesarYEvolucionarGeneradores(args: {
   }
 
   if (genStep === "cotizacion") {
+    const n = texto.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+    // Step 1: detect clear technical question BEFORE checking desinteres
+    // If the message contains a question word and no disinterest signal, let Claude handle it
+    const esPreguntaTecnica =
+      /\b(como|cómo|cuanto|cuánto|cuantas|cuántas|cuantos|cuántos|que tan|qué tan|sirve|funciona|consume|dura|aguanta|alcanza|incluye|tiene|trae|viene|pesa|mide|ruido|ruidos|decibeles|garantia|garantía|instalacion|instalación|financiamiento|credito|crédito|meses|mensualidades|combustible|gasolina|litros|tanque|autonomia|autonomía|voltaje|watts|potencia|arranque|electrico|eléctrico|portatil|portátil|manual|automatico|automático)\b/.test(n) &&
+      !/\b(no me interesa|no gracias|no quiero|no puedo|no tengo|caro|muy caro|sin dinero)\b/.test(n);
+
+    if (esPreguntaTecnica && claudeDisponible()) {
+      const modeloActual = conv.data?.gen_modelo;
+      const precioActual =
+        typeof modeloActual === "string" && modeloActual in CATALOGO_GENERADORES
+          ? CATALOGO_GENERADORES[modeloActual as ModeloKey].precio
+          : "$12,186–$23,000";
+
+      const interp = await interpretarRespuestaGenerador({
+        phone,
+        genStep: "equipos",
+        preguntaActual: `El cliente acaba de ver la cotización del ${
+          typeof modeloActual === "string" && modeloActual in CATALOGO_GENERADORES
+            ? CATALOGO_GENERADORES[modeloActual as ModeloKey].modelo
+            : "generador"
+        } (${precioActual}). Está haciendo una pregunta técnica. Respóndela con tu conocimiento y pregunta si le gustaría que un asesor le contacte para más detalles.`,
+        textoUsuario: texto,
+      });
+
+      if (interp?.tipo === "fuera_tema" && interp.respuestaRetomo) {
+        return interp.respuestaRetomo;
+      }
+      if (interp?.tipo === "valida") {
+        // Claude detected interest while answering
+        await persistirPaso(phone, conv, {
+          ...(conv.data ?? {}),
+          gen_interes: "si",
+          genStep: "horario",
+        });
+        return PREGUNTA_HORARIO;
+      }
+    }
+
+    // Step 2: check desinteres
     const reaccion = detectarInteresEnTexto(texto);
 
     if (reaccion === "desinteres") {
+      const esPendienteDecision = /\b(le voy a comentar|voy a comentar|lo comento|lo consulto|consultar con|hablar con mi|decirle a mi|preguntarle a|no soy el que decide|no soy quien decide|no decido yo|decide mi|lo decide mi|deja checo|deja que checo|voy a checar|dejame checar|déjame checar|deja chequeo|lo checo|ahorita checo|nomas checo|nomás checo|voy a pensarlo|lo pienso|lo platico)\b/.test(normalizarTexto(texto));
+
       await actualizarLeadPorConversacion(phone, {
         estado: "no_interesado",
-        nota: `Generador — Uso: ${conv.data?.gen_tipo ?? "N/D"}. Equipos: ${conv.data?.gen_equipos ?? "N/D"}. Modelo: ${conv.data?.gen_modelo ?? "N/D"}. Cliente indicó desinterés por precio.`,
+        nota: `Generador — Uso: ${conv.data?.gen_tipo ?? "N/D"}. Equipos: ${conv.data?.gen_equipos ?? "N/D"}. Modelo: ${conv.data?.gen_modelo ?? "N/D"}. ${esPendienteDecision ? "Cliente pendiente de decisión." : "Cliente indicó desinterés por precio."}`,
       });
       await setConversation(phone, {
         state: "finalizado",
@@ -493,9 +559,10 @@ export async function procesarYEvolucionarGeneradores(args: {
         producto: conv.producto,
         data: { ...(conv.data ?? {}), gen_interes: "no" },
       });
-      return MSG_DESINTERES;
+      return esPendienteDecision ? MSG_PENDIENTE_DECISION : MSG_DESINTERES;
     }
 
+    // Step 3: check interes
     if (reaccion === "interes") {
       await persistirPaso(phone, conv, {
         ...(conv.data ?? {}),
@@ -505,6 +572,7 @@ export async function procesarYEvolucionarGeneradores(args: {
       return PREGUNTA_HORARIO;
     }
 
+    // Step 4: Claude for ambiguous cases
     if (claudeDisponible()) {
       const modeloActual = conv.data?.gen_modelo;
       const precioActual =
@@ -548,12 +616,34 @@ export async function procesarYEvolucionarGeneradores(args: {
       }
     }
 
+    // Step 5: no clear signal
     const modeloActual = conv.data?.gen_modelo;
     const precioMostrado =
       typeof modeloActual === "string" && modeloActual in CATALOGO_GENERADORES
         ? CATALOGO_GENERADORES[modeloActual as ModeloKey].precio
         : "$12,186–$23,000";
     return `¿Te gustaría que un asesor te contacte para darte más información? El generador ronda los ${precioMostrado} 😊`;
+  }
+
+  // Detect late disinterest — client changed their mind after cotizacion
+  const desinteresHorario = detectarInteresEnTexto(texto);
+  if (desinteresHorario === "desinteres") {
+    await actualizarLeadPorConversacion(phone, {
+      estado: "no_interesado",
+      nota: `Generador — Uso: ${conv.data?.gen_tipo ?? "N/D"}. Equipos: ${conv.data?.gen_equipos ?? "N/D"}. Modelo: ${conv.data?.gen_modelo ?? "N/D"}. Cliente indicó falta de presupuesto en paso horario.`,
+    });
+    await setConversation(phone, {
+      state: "finalizado",
+      lead_id: conv.lead_id,
+      nss: conv.nss,
+      producto: conv.producto,
+      data: { ...(conv.data ?? {}), gen_interes: "no" },
+    });
+    const esPendienteDecision =
+      /\b(le voy a comentar|voy a comentar|lo comento|lo consulto|consultar con|hablar con mi|decirle a mi|preguntarle a|no soy el que decide|no soy quien decide|no decido yo|decide mi|lo decide mi|deja checo|deja que checo|voy a checar|voy a ver|dejame checar|déjame checar|deja chequeo|lo checo|lo veo|lo reviso|ahorita checo|nomas checo|nomás checo|voy a pensarlo|lo pienso|lo platico)\b/.test(
+        normalizarTexto(texto),
+      );
+    return esPendienteDecision ? MSG_PENDIENTE_DECISION : MSG_DESINTERES;
   }
 
   const resultado = await analizarPasoGenerador({ phone, genStep: "horario", texto });
