@@ -67,9 +67,10 @@ type Lead = {
   tiene_mensaje_sin_leer?: boolean;
 };
 
-function indicadorEstadoClase(estado: LeadEstado): string {
-  if (estado === "nuevo") return "bg-[#25D366] shadow-[0_0_0_2px_rgba(37,211,102,0.35)]";
+function indicadorEstadoClase(estado: LeadEstado, tieneMensajeSinLeer?: boolean): string {
+  if (tieneMensajeSinLeer) return "bg-[#25D366] shadow-[0_0_0_2px_rgba(37,211,102,0.35)]";
   if (estado === "contactado") return "bg-slate-400";
+  if (estado === "nuevo") return "bg-slate-400";
   return "bg-rose-400";
 }
 
@@ -966,6 +967,7 @@ export default function CrmLeadsPage() {
                         <span
                           className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white ${indicadorEstadoClase(
                             lead.estado,
+                            lead.tiene_mensaje_sin_leer,
                           )}`}
                           aria-label={`Estado: ${etiquetaEstado(lead.estado)}`}
                         />
