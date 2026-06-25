@@ -14,6 +14,7 @@ import { getMetaWebhookVerificationResponse } from "@/lib/metaWebhookVerificatio
 import { extraerNssOnceDigitos } from "@/lib/nss";
 import { enviarPushNuevoLead, enviarPushNuevoMensaje } from "@/lib/pushNotifications";
 import { extraerTextosEntrantes, payloadDebeIgnorarPorEcos } from "@/lib/parseWhatsAppWebhook";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { resolveWhatsAppAccount } from "@/lib/whatsappAccountResolver";
 import { enviarMensajeTextoWa } from "@/lib/whatsappCloud";
 
@@ -342,6 +343,16 @@ export async function POST(req: NextRequest): Promise<Response> {
 
     const leadFresh = await buscarLeadPorTelefono(m.from);
     if (leadFresh?.estado === "contactado") {
+      try {
+        const supabase = getSupabaseAdmin();
+        await supabase
+          .from("leads")
+          .update({ estado: "nuevo" })
+          .eq("id", leadFresh.id);
+      } catch (err) {
+        console.error("[webhook] Error actualizando contactado→nuevo:", err);
+      }
+
       await flushHistorialPendiente();
       try {
         await enviarPushNuevoMensaje({

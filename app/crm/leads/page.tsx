@@ -660,6 +660,31 @@ export default function CrmLeadsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabActiva]);
 
+  useEffect(() => {
+    if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
+      return;
+    }
+
+    const onSwMessage = (event: MessageEvent) => {
+      const type = (event.data as { type?: string } | null)?.type;
+      if (type === "PUSH_NUEVO_MENSAJE" || type === "PUSH_NUEVO_LEAD") {
+        void cargarLeads({ silencioso: true });
+      }
+    };
+
+    navigator.serviceWorker.addEventListener("message", onSwMessage);
+
+    const poll = setInterval(() => {
+      void cargarLeads({ silencioso: true });
+    }, 10_000);
+
+    return () => {
+      navigator.serviceWorker.removeEventListener("message", onSwMessage);
+      clearInterval(poll);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabActiva]);
+
   const tabActual = TABS.find((t) => t.id === tabActiva);
 
   return (

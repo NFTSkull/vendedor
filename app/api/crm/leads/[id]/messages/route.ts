@@ -121,11 +121,26 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
       console.error("[CRM messages POST] Error lead_actions:", actionError);
     }
 
-    // Advisor read/replied → clear unread indicator
-    await supabase
-      .from("leads")
-      .update({ tiene_mensaje_nuevo: false })
-      .eq("id", leadId);
+    // Advisor replied → mark as contactado + clear unread indicator
+    // Only transition nuevo → contactado (never touch no_interesado)
+    if (lead.estado === "nuevo") {
+      await supabase
+        .from("leads")
+        .update({ estado: "contactado", tiene_mensaje_nuevo: false })
+        .eq("id", leadId);
+
+      await supabase.from("lead_actions").insert({
+        lead_id: leadId,
+        advisor_id: auth.sub,
+        accion: "cambio_estado_automatico",
+        nota: "Marcado como contactado (asesor respondió)",
+      });
+    } else {
+      await supabase
+        .from("leads")
+        .update({ tiene_mensaje_nuevo: false })
+        .eq("id", leadId);
+    }
 
     return Response.json({ ok: true }, { status: 200 });
   } catch (err) {

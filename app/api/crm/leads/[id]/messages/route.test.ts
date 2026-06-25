@@ -78,7 +78,7 @@ describe("POST /api/crm/leads/[id]/messages", () => {
     vi.clearAllMocks();
   });
 
-  it("lead en nuevo + envío exitoso → limpia tiene_mensaje_nuevo + mensaje_asesor", async () => {
+  it("lead en nuevo + envío exitoso → contactado + limpia tiene_mensaje_nuevo + mensaje_asesor", async () => {
     mocks.maybeSingleLead.mockResolvedValue({
       data: { id: "lead-1", whatsapp_phone: "5215550000000", estado: "nuevo" },
       error: null,
@@ -87,13 +87,22 @@ describe("POST /api/crm/leads/[id]/messages", () => {
     const res = await postMensaje("lead-1", "Hola desde CRM");
 
     expect(res.status).toBe(200);
-    expect(mocks.updateLeadEstado).toHaveBeenCalledWith({ tiene_mensaje_nuevo: false });
-    expect(mocks.insertLeadAction).toHaveBeenCalledTimes(1);
-    expect(mocks.insertLeadAction).toHaveBeenCalledWith({
+    expect(mocks.updateLeadEstado).toHaveBeenCalledWith({
+      estado: "contactado",
+      tiene_mensaje_nuevo: false,
+    });
+    expect(mocks.insertLeadAction).toHaveBeenCalledTimes(2);
+    expect(mocks.insertLeadAction).toHaveBeenNthCalledWith(1, {
       lead_id: "lead-1",
       advisor_id: "advisor-1",
       accion: "mensaje_asesor",
       nota: "Hola desde CRM",
+    });
+    expect(mocks.insertLeadAction).toHaveBeenNthCalledWith(2, {
+      lead_id: "lead-1",
+      advisor_id: "advisor-1",
+      accion: "cambio_estado_automatico",
+      nota: "Marcado como contactado (asesor respondió)",
     });
   });
 
