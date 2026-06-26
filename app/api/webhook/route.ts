@@ -356,11 +356,13 @@ export async function POST(req: NextRequest): Promise<Response> {
           .maybeSingle();
 
         if (intervencion) {
-          if (leadFresh?.estado === "contactado") {
+          try {
             await supabase
               .from("leads")
               .update({ estado: "nuevo" })
               .eq("id", leadIdParaVerificar);
+          } catch (err) {
+            console.error("[webhook] Error flip→nuevo post-intervencion:", err);
           }
           await flushHistorialPendiente();
           try {
