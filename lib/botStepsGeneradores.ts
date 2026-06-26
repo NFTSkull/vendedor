@@ -189,6 +189,7 @@ export function detectarEquiposEnTexto(
 
 export function detectarInteresEnTexto(
   texto: string,
+  opciones?: { excluirAgradecimientoCotizacion?: boolean },
 ): "interes" | "desinteres" | null {
   const n = texto
     .trim()
@@ -196,10 +197,17 @@ export function detectarInteresEnTexto(
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
 
-  const desinteres =
-    /\b(caro|muy caro|sale caro|es caro|esta caro|esta muy caro|no me interesa|no gracias|no por ahora|no tengo presupuesto|fuera de mi presupuesto|no puedo|no cuento con|no tengo el dinero|no tengo dinero|sin dinero|no tengo lana|no tengo recursos|por lo pronto no|ahorita no cuento|no alcanza|no me alcanza|lo pensare|lo pensaré|despues|después|ahorita no|ya no|no quiero|solo queria saber|solo quería saber|nada mas queria|nada más quería|solo curiosidad|era curiosidad|solo preguntaba|solo pregunta|le voy a comentar|voy a comentar|lo comento|lo consulto|consultar con|hablar con mi|decirle a mi|preguntarle a|no soy el que decide|no soy quien decide|no decido yo|decide mi|lo decide mi|deja checo|deja que checo|voy a checar|dejame checar|déjame checar|deja chequeo|lo checo|ahorita checo|nomas checo|nomás checo|voy a pensarlo|lo pienso|lo platico)\b/.test(
-      n,
-    );
+  const agradecimientoCotizacion =
+    "gracias por la informacion|gracias por la información|por la informacion|por la información|muchas gracias|mil gracias|ok gracias|okey gracias|a ok gracias";
+
+  const desinteresBase =
+    "caro|muy caro|sale caro|es caro|esta caro|esta muy caro|no me interesa|no gracias|no por ahora|no tengo presupuesto|fuera de mi presupuesto|no puedo|no cuento con|no tengo el dinero|no tengo dinero|sin dinero|no tengo lana|no tengo recursos|por lo pronto no|ahorita no cuento|no alcanza|no me alcanza|lo pensare|lo pensaré|despues|después|ahorita no|ya no|no quiero|solo queria saber|solo quería saber|nada mas queria|nada más quería|solo curiosidad|era curiosidad|solo preguntaba|solo pregunta|le voy a comentar|voy a comentar|lo comento|lo consulto|consultar con|hablar con mi|decirle a mi|preguntarle a|no soy el que decide|no soy quien decide|no decido yo|decide mi|lo decide mi|deja checo|deja que checo|voy a checar|dejame checar|déjame checar|deja chequeo|lo checo|ahorita checo|nomas checo|nomás checo|voy a pensarlo|lo pienso|lo platico";
+
+  const desinteresPatron = opciones?.excluirAgradecimientoCotizacion
+    ? desinteresBase
+    : `${desinteresBase}|${agradecimientoCotizacion}`;
+
+  const desinteres = new RegExp(`\\b(${desinteresPatron})\\b`).test(n);
   if (desinteres) return "desinteres";
 
   const interes =
@@ -626,7 +634,9 @@ export async function procesarYEvolucionarGeneradores(args: {
   }
 
   // Detect late disinterest — client changed their mind after cotizacion
-  const desinteresHorario = detectarInteresEnTexto(texto);
+  const desinteresHorario = detectarInteresEnTexto(texto, {
+    excluirAgradecimientoCotizacion: true,
+  });
   if (desinteresHorario === "desinteres") {
     await actualizarLeadPorConversacion(phone, {
       estado: "no_interesado",

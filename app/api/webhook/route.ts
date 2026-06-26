@@ -367,6 +367,36 @@ export async function POST(req: NextRequest): Promise<Response> {
       continue;
     }
 
+    if (leadChat?.id) {
+      try {
+        const supabase = getSupabaseAdmin();
+        const { data: intervencion } = await supabase
+          .from("lead_actions")
+          .select("id")
+          .eq("lead_id", leadChat.id)
+          .in("accion", ["mensaje_asesor", "archivo_asesor"])
+          .limit(1)
+          .maybeSingle();
+
+        if (intervencion) {
+          await flushHistorialPendiente();
+          try {
+            await enviarPushNuevoMensaje({
+              leadId: leadChat.id,
+              telefono: leadChat.whatsapp_phone,
+              mensaje: textoProcesar,
+              advisorId: leadChat.advisor_id ?? null,
+            });
+          } catch (err) {
+            console.error("[webhook] Error push post-intervencion:", err);
+          }
+          continue;
+        }
+      } catch (err) {
+        console.error("[webhook] Error verificando intervencion asesor:", err);
+      }
+    }
+
     const conversacionAntes = await getConversation(m.from);
     if (
       conversacionAntes.state === "esperando_datos" &&
