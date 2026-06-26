@@ -342,17 +342,45 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
 
     const leadFresh = await buscarLeadPorTelefono(m.from);
-    if (leadFresh?.estado === "contactado") {
+
+    const leadIdParaVerificar = leadFresh?.id ?? leadChat?.id;
+    if (leadIdParaVerificar) {
       try {
         const supabase = getSupabaseAdmin();
-        await supabase
-          .from("leads")
-          .update({ estado: "nuevo" })
-          .eq("id", leadFresh.id);
-      } catch (err) {
-        console.error("[webhook] Error actualizando contactado→nuevo:", err);
-      }
+        const { data: intervencion } = await supabase
+          .from("lead_actions")
+          .select("id")
+          .eq("lead_id", leadIdParaVerificar)
+          .in("accion", ["mensaje_asesor", "archivo_asesor"])
+          .limit(1)
+          .maybeSingle();
 
+        if (intervencion) {
+          if (leadFresh?.estado === "contactado") {
+            await supabase
+              .from("leads")
+              .update({ estado: "nuevo" })
+              .eq("id", leadIdParaVerificar);
+          }
+          await flushHistorialPendiente();
+          try {
+            await enviarPushNuevoMensaje({
+              leadId: leadIdParaVerificar,
+              telefono: leadFresh?.whatsapp_phone ?? m.from,
+              mensaje: textoProcesar,
+              advisorId: leadFresh?.advisor_id ?? null,
+            });
+          } catch (err) {
+            console.error("[webhook] Error push post-intervencion:", err);
+          }
+          continue;
+        }
+      } catch (err) {
+        console.error("[webhook] Error verificando intervencion asesor:", err);
+      }
+    }
+
+    if (leadFresh?.estado === "contactado") {
       await flushHistorialPendiente();
       try {
         await enviarPushNuevoMensaje({
@@ -365,36 +393,6 @@ export async function POST(req: NextRequest): Promise<Response> {
         console.error("[webhook] Error push mensaje en lead contactado:", err);
       }
       continue;
-    }
-
-    if (leadChat?.id) {
-      try {
-        const supabase = getSupabaseAdmin();
-        const { data: intervencion } = await supabase
-          .from("lead_actions")
-          .select("id")
-          .eq("lead_id", leadChat.id)
-          .in("accion", ["mensaje_asesor", "archivo_asesor"])
-          .limit(1)
-          .maybeSingle();
-
-        if (intervencion) {
-          await flushHistorialPendiente();
-          try {
-            await enviarPushNuevoMensaje({
-              leadId: leadChat.id,
-              telefono: leadChat.whatsapp_phone,
-              mensaje: textoProcesar,
-              advisorId: leadChat.advisor_id ?? null,
-            });
-          } catch (err) {
-            console.error("[webhook] Error push post-intervencion:", err);
-          }
-          continue;
-        }
-      } catch (err) {
-        console.error("[webhook] Error verificando intervencion asesor:", err);
-      }
     }
 
     const conversacionAntes = await getConversation(m.from);
