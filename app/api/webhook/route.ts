@@ -439,6 +439,19 @@ export async function POST(req: NextRequest): Promise<Response> {
       console.error("[WhatsApp send]", envio.status, envio.data);
     } else {
       mensajesSalientesExitosos.push(reply);
+
+      const leadParaContactar = leadChat ?? (await buscarLeadPorTelefono(m.from));
+      if (leadParaContactar?.id && leadParaContactar.estado === "nuevo") {
+        try {
+          const supabase = getSupabaseAdmin();
+          await supabase
+            .from("leads")
+            .update({ estado: "contactado" })
+            .eq("id", leadParaContactar.id);
+        } catch (err) {
+          console.error("[webhook] Error marcando contactado tras respuesta bot:", err);
+        }
+      }
     }
 
     await flushHistorialPendiente();
