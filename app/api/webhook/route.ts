@@ -383,18 +383,18 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
 
     if (leadFresh?.estado === "contactado") {
-      await flushHistorialPendiente();
       try {
-        await enviarPushNuevoMensaje({
-          leadId: leadFresh.id,
-          telefono: leadFresh.whatsapp_phone,
-          mensaje: textoProcesar,
-          advisorId: leadFresh.advisor_id ?? null,
-        });
+        const supabase = getSupabaseAdmin();
+        await supabase
+          .from("leads")
+          .update({ estado: "nuevo" })
+          .eq("id", leadFresh.id);
       } catch (err) {
-        console.error("[webhook] Error push mensaje en lead contactado:", err);
+        console.error("[webhook] Error flip contactado→nuevo:", err);
       }
-      continue;
+      if (leadChat) {
+        leadChat = { ...leadChat, estado: "nuevo" };
+      }
     }
 
     const conversacionAntes = await getConversation(m.from);

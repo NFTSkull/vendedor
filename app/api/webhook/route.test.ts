@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   enviarPushNuevoMensaje: vi.fn(),
   procesarYEvolucionar: vi.fn(),
   enviarMensajeTextoWa: vi.fn(),
+  maybeSingleIntervencion: vi.fn(),
+  updateLeadsEstado: vi.fn(),
 }));
 
 vi.mock("@/lib/parseWhatsAppWebhook", () => ({
@@ -55,6 +57,34 @@ vi.mock("@/lib/metaWebhookVerification", () => ({
   getMetaWebhookVerificationResponse: vi.fn(),
 }));
 
+vi.mock("@/lib/supabaseAdmin", () => ({
+  getSupabaseAdmin: () => ({
+    from: (table: string) => {
+      if (table === "lead_actions") {
+        return {
+          select: () => ({
+            eq: () => ({
+              in: () => ({
+                limit: () => ({
+                  maybeSingle: mocks.maybeSingleIntervencion,
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === "leads") {
+        return {
+          update: (payload: Record<string, unknown>) => ({
+            eq: () => mocks.updateLeadsEstado(payload),
+          }),
+        };
+      }
+      return {};
+    },
+  }),
+}));
+
 import { POST } from "@/app/api/webhook/route";
 import { ADVISOR_ID_ADMIN } from "@/lib/detectarProducto";
 
@@ -90,6 +120,8 @@ describe("POST /api/webhook", () => {
     mocks.procesarYEvolucionar.mockResolvedValue("Respuesta del bot");
     mocks.enviarMensajeTextoWa.mockResolvedValue({ ok: true, status: 200, data: {} });
     mocks.guardarMensaje.mockResolvedValue(true);
+    mocks.maybeSingleIntervencion.mockResolvedValue({ data: null });
+    mocks.updateLeadsEstado.mockResolvedValue({ error: null });
   });
 
   afterEach(() => {
@@ -304,7 +336,11 @@ describe("POST /api/webhook", () => {
       mensaje: "Hola",
       advisorId: null,
     });
-    expect(mocks.procesarYEvolucionar).not.toHaveBeenCalled();
+    expect(mocks.procesarYEvolucionar).toHaveBeenCalledWith({
+      phone: "5215550000000",
+      textoUsuario: "Hola",
+    });
+    expect(mocks.updateLeadsEstado).toHaveBeenCalledWith({ estado: "nuevo" });
   });
 
   it("responde y guarda mensaje cuando el entrante no es texto", async () => {
