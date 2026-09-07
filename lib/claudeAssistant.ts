@@ -423,3 +423,108 @@ Devuelve SOLO JSON válido (sin markdown) con esta forma:
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Compra de Casa — análisis independiente (mismo contrato JSON que Generadores)
+// ---------------------------------------------------------------------------
+
+export type CasaStepClaude =
+  | "municipio"
+  | "colonia"
+  | "recamaras"
+  | "banos"
+  | "tipo_propiedad"
+  | "nivel_depto"
+  | "pisos_casa"
+  | "individual_duplex"
+  | "pagada"
+  | "acreedor"
+  | "monto_adeudado"
+  | "imagen";
+
+const SYSTEM_PROMPT_COMPRA_CASA = `Eres el asesor virtual en WhatsApp de un equipo que ayuda a personas que quieren VENDER su propiedad (casa o departamento). No ayudas a comprar: tu rol es recolectar datos para que un asesor humano prepare una oferta.
+
+ROL 1 — CLASIFICADOR DE FLUJO: Cuando el sistema indica el paso actual, clasifica la respuesta del cliente en JSON.
+
+ROL 2 — RESPUESTA LIBRE FUERA DEL FLUJO: Cuando el cliente pregunte o comente algo que no responde el paso actual, respóndele de forma natural, cálida y útil, usando tu propio criterio, como lo haría un asesor humano capaz. No tienes que ceñirte a respuestas predefinidas, puedes explicar, tranquilizar, o resolver dudas con libertad.
+
+Solo dos reglas son innegociables:
+- NUNCA inventes montos, porcentajes, plazos de pago ni promesas concretas sobre la oferta. Si preguntan por eso, explica que un asesor humano da esos detalles con base en la evaluación de su caso.
+- Sin importar qué tan larga o distinta sea tu respuesta a la duda del cliente, SIEMPRE termina retomando la pregunta pendiente del flujo, con el texto EXACTO de esa pregunta, para que la conversación pueda continuar.
+
+No hay más restricciones de contenido. Confía en tu criterio para todo lo demás: explicar el proceso, tranquilizar a alguien indeciso, aclarar por qué se pide un dato, responder con empatía si el cliente duda o pregunta algo personal, lo que sea natural en la conversación.
+
+=== CLASIFICACIÓN JSON ===
+- "valida": el cliente respondió la pregunta actual de forma utilizable (incluye valorNormalizado).
+- "fuera_tema": el cliente preguntó o comentó sin responder el paso; en respuestaRetomo responde con libertad (reglas de arriba) y termina con la pregunta EXACTA del paso.
+- "agradece": el cliente solo agradece o se despide.
+
+Reglas de clasificación:
+- Si el cliente responde el paso actual Y también hace pregunta extra → "valida", extrae valorNormalizado.
+- Si el cliente SOLO pregunta o comenta sin responder el paso → "fuera_tema".
+- NUNCA anticipes el siguiente paso del flujo.
+- Nunca uses markdown ni asteriscos en respuestaRetomo — texto plano WhatsApp.
+- Responde SOLO JSON válido, sin markdown.`;
+
+export async function interpretarRespuestaCompraCasa(args: {
+  phone: string;
+  casaStep: CasaStepClaude;
+  preguntaActual: string;
+  textoUsuario: string;
+}): Promise<InterpretacionGenerador | null> {
+  const anthropic = clienteAnthropic();
+  if (!anthropic) return null;
+
+  const prompt = `Paso actual del flujo compra_casa: ${args.casaStep}
+Pregunta que debe responder el cliente:
+"""
+${args.preguntaActual}
+"""
+Mensaje del usuario:
+"""
+${args.textoUsuario}
+"""
+
+Devuelve SOLO JSON válido (sin markdown) con esta forma:
+{
+  "tipo": "valida" | "fuera_tema" | "agradece",
+  "valorNormalizado": "si tipo es valida: respuesta limpia; si fuera_tema pero detectaste el dato del paso en el mensaje: inclúyelo también (opcional)",
+  "respuestaRetomo": "solo si tipo es fuera_tema: respuesta natural + repetir EXACTAMENTE preguntaActual"
+}`;
+
+  try {
+    const res = await anthropic.messages.create({
+      model: MODELO,
+      max_tokens: 512,
+      system: SYSTEM_PROMPT_COMPRA_CASA,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const bloque = res.content.find((b) => b.type === "text");
+    if (!bloque || bloque.type !== "text") return null;
+
+    const parsed = parseJson<{
+      tipo: InterpretacionGeneradorTipo;
+      valorNormalizado?: string;
+      respuestaRetomo?: string;
+    }>(bloque.text);
+
+    if (!parsed?.tipo) return null;
+
+    pushHistorial(args.phone, "user", args.textoUsuario);
+    if (parsed.respuestaRetomo) {
+      pushHistorial(args.phone, "assistant", parsed.respuestaRetomo);
+    }
+
+    return {
+      tipo: parsed.tipo,
+      valorNormalizado: parsed.valorNormalizado?.trim() || undefined,
+      respuestaRetomo: parsed.respuestaRetomo
+        ? limpiarMarkdown(parsed.respuestaRetomo)
+        : undefined,
+    };
+  } catch (err) {
+    console.error("[claude interpretar compra_casa]", err);
+    return null;
+  }
+}
