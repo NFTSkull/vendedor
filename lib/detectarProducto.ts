@@ -11,13 +11,9 @@ export const MEJORAVIT_PHONE_NUMBER_ID = "1177472778778882";
 /** Placeholder hasta confirmar phone_number_id de Energrum */
 export const ENERGRUM_PHONE_NUMBER_ID = "ENERGRUM_PENDING";
 
-/** Número dedicado para leads de Compra de Casa */
-export const COMPRA_CASA_PHONE_NUMBER_ID =
-  process.env.COMPRA_CASA_PHONE_NUMBER_ID?.trim() || "COMPRA_CASA_PENDING";
-
-// === OVERRIDE TEMPORAL: número Mejoravit redirigido a Generadores ===
+// === Número Mejoravit reutilizado para Compra de Casa (antes redirigido a Generadores) ===
 // Para revertir a Mejoravit: borra la constante y el bloque if asociado.
-export const CONCASA_GENERADORES_PHONE_NUMBER_ID = "1177472778778882";
+export const COMPRA_CASA_PHONE_NUMBER_ID = "1177472778778882";
 
 function normalizarTexto(texto: string): string {
   return texto
@@ -50,11 +46,7 @@ export function detectarProducto(args: {
 }): ProductoLead {
   const phoneNumberId = args.phoneNumberId.trim();
 
-  // OVERRIDE TEMPORAL — borrar este bloque para devolver el número a Mejoravit
-  if (phoneNumberId === CONCASA_GENERADORES_PHONE_NUMBER_ID) {
-    return "generadores";
-  }
-
+  // Número reutilizado — borrar este bloque para devolver el número a Mejoravit
   if (phoneNumberId === COMPRA_CASA_PHONE_NUMBER_ID) {
     return "compra_casa";
   }

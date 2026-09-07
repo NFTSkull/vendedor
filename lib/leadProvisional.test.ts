@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CONCASA_GENERADORES_PHONE_NUMBER_ID } from "@/lib/detectarProducto";
+import { COMPRA_CASA_PHONE_NUMBER_ID } from "@/lib/detectarProducto";
 
 const mocks = vi.hoisted(() => ({
   getConversation: vi.fn(),
@@ -43,9 +43,9 @@ describe("ensureLeadProvisional — routing producto con lead existente", () => 
     });
   });
 
-  it("lead Mejoravit previo + número generadores → conversations.producto=generadores, sin tocar leads", async () => {
+  it("lead Mejoravit previo + número reutilizado → conversations.producto=compra_casa, sin tocar leads", async () => {
     const leadId = await ensureLeadProvisional("5215550000000", {
-      phoneNumberId: CONCASA_GENERADORES_PHONE_NUMBER_ID,
+      phoneNumberId: COMPRA_CASA_PHONE_NUMBER_ID,
       primerMensaje: "hola",
     });
 
@@ -53,7 +53,7 @@ describe("ensureLeadProvisional — routing producto con lead existente", () => 
     expect(mocks.setConversation).toHaveBeenCalledWith("5215550000000", {
       state: "inicio",
       lead_id: "lead-mejoravit-viejo",
-      producto: "generadores",
+      producto: "compra_casa",
     });
     expect(mocks.from).not.toHaveBeenCalled();
   });

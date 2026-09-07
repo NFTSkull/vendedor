@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ADVISOR_ID_BERNARDO,
   ADVISOR_ID_GUILLERMO,
-  CONCASA_GENERADORES_PHONE_NUMBER_ID,
+  COMPRA_CASA_PHONE_NUMBER_ID,
   detectarPrefijoAsesor,
   detectarProducto,
   ENERGRUM_PHONE_NUMBER_ID,
@@ -11,22 +11,22 @@ import {
 } from "@/lib/detectarProducto";
 
 describe("detectarProducto", () => {
-  it("override temporal Mejoravit (1177472778778882) → generadores", () => {
+  it("número reutilizado Mejoravit (1177472778778882) → compra_casa", () => {
     expect(
       detectarProducto({
         phoneNumberId: MEJORAVIT_PHONE_NUMBER_ID,
-        primerMensaje: "quiero paneles solares y generadores",
+        primerMensaje: "quiero vender mi casa",
       }),
-    ).toBe("generadores");
+    ).toBe("compra_casa");
   });
 
-  it("mismo ID vía constante override → generadores", () => {
+  it("mismo ID vía constante → compra_casa", () => {
     expect(
       detectarProducto({
-        phoneNumberId: CONCASA_GENERADORES_PHONE_NUMBER_ID,
+        phoneNumberId: COMPRA_CASA_PHONE_NUMBER_ID,
         primerMensaje: "hola",
       }),
-    ).toBe("generadores");
+    ).toBe("compra_casa");
   });
 
   it("Energrum + paneles solares → paneles", () => {
