@@ -2,6 +2,7 @@ export type ProductoLead =
   | "mejoravit"
   | "paneles"
   | "generadores"
+  | "compra_casa"
   | "sin_clasificar";
 
 /** Número bot principal Mejoravit (+52 81 1411 8767) */
@@ -9,6 +10,10 @@ export const MEJORAVIT_PHONE_NUMBER_ID = "1177472778778882";
 
 /** Placeholder hasta confirmar phone_number_id de Energrum */
 export const ENERGRUM_PHONE_NUMBER_ID = "ENERGRUM_PENDING";
+
+/** Número dedicado para leads de Compra de Casa */
+export const COMPRA_CASA_PHONE_NUMBER_ID =
+  process.env.COMPRA_CASA_PHONE_NUMBER_ID?.trim() || "COMPRA_CASA_PENDING";
 
 // === OVERRIDE TEMPORAL: número Mejoravit redirigido a Generadores ===
 // Para revertir a Mejoravit: borra la constante y el bloque if asociado.
@@ -48,6 +53,10 @@ export function detectarProducto(args: {
   // OVERRIDE TEMPORAL — borrar este bloque para devolver el número a Mejoravit
   if (phoneNumberId === CONCASA_GENERADORES_PHONE_NUMBER_ID) {
     return "generadores";
+  }
+
+  if (phoneNumberId === COMPRA_CASA_PHONE_NUMBER_ID) {
+    return "compra_casa";
   }
 
   if (phoneNumberId === MEJORAVIT_PHONE_NUMBER_ID) {

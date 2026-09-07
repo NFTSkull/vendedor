@@ -7,6 +7,7 @@ import {
   type InterpretacionUsuario,
 } from "@/lib/claudeAssistant";
 import { getConversation } from "@/lib/conversationMemory";
+import { procesarYEvolucionarCompraCasa } from "@/lib/botStepsCompraCasa";
 import { procesarYEvolucionarGeneradores } from "@/lib/botStepsGeneradores";
 import { procesarYEvolucionarPaneles } from "@/lib/botStepsPaneles";
 import {
@@ -98,6 +99,9 @@ export async function procesarYEvolucionar(args: {
   }
   if (producto === "generadores") {
     return procesarYEvolucionarGeneradores({ phone, textoUsuario: texto });
+  }
+  if (producto === "compra_casa") {
+    return procesarYEvolucionarCompraCasa({ phone, textoUsuario: texto });
   }
   // producto === 'mejoravit' → flujo actual sin cambios
 
