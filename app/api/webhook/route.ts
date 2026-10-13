@@ -5,7 +5,6 @@ import {
   aplicarComandoProducto,
   detectarComandoProducto,
   esNumeroConComandoProducto,
-  esRemitenteAutorizadoComando,
 } from "@/lib/comandoProducto";
 import { getConversation } from "@/lib/conversationMemory";
 import { detectarPrefijoAsesor, ADVISOR_ID_ADMIN } from "@/lib/detectarProducto";
@@ -437,11 +436,9 @@ export async function POST(req: NextRequest): Promise<Response> {
       }
     }
 
-    const comandoProducto =
-      esNumeroConComandoProducto(m.phoneNumberId) &&
-      esRemitenteAutorizadoComando(m.from)
-        ? detectarComandoProducto(textoProcesar)
-        : null;
+    const comandoProducto = esNumeroConComandoProducto(m.phoneNumberId)
+      ? detectarComandoProducto(textoProcesar)
+      : null;
     const reply = comandoProducto
       ? await aplicarComandoProducto(m.from, comandoProducto)
       : await procesarYEvolucionar({

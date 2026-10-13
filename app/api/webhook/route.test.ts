@@ -464,11 +464,6 @@ describe("POST /api/webhook", () => {
   describe("comando de producto en el número 8114118767", () => {
     beforeEach(() => {
       mocks.aplicarComandoProducto.mockResolvedValue(MSG_CONFIRMACION_MEJORAVIT);
-      vi.stubEnv("COMANDO_PRODUCTO_TEST_PHONES", "5215550000000");
-    });
-
-    afterEach(() => {
-      vi.unstubAllEnvs();
     });
 
     it("cambia el producto, responde la confirmación y no pasa por el bot", async () => {
@@ -503,7 +498,7 @@ describe("POST /api/webhook", () => {
       });
     });
 
-    it("'activa compra de casa' del teléfono autorizado cambia a casas", async () => {
+    it("'activa compra de casa' cambia a casas", async () => {
       mocks.extraerTextosEntrantes.mockReturnValue([
         {
           from: "5215550000000",
@@ -522,7 +517,7 @@ describe("POST /api/webhook", () => {
       expect(mocks.procesarYEvolucionar).not.toHaveBeenCalled();
     });
 
-    it("un cliente no autorizado que escribe el comando sigue al bot normal", async () => {
+    it("cualquier remitente en ese número puede usar el comando", async () => {
       mocks.extraerTextosEntrantes.mockReturnValue([
         {
           from: "5218100000000",
@@ -534,28 +529,11 @@ describe("POST /api/webhook", () => {
 
       await postWebhook();
 
-      expect(mocks.aplicarComandoProducto).not.toHaveBeenCalled();
-      expect(mocks.procesarYEvolucionar).toHaveBeenCalledWith({
-        phone: "5218100000000",
-        textoUsuario: "activa mejoravit",
-      });
-    });
-
-    it("sin COMANDO_PRODUCTO_TEST_PHONES nadie puede usar el comando", async () => {
-      vi.stubEnv("COMANDO_PRODUCTO_TEST_PHONES", "");
-      mocks.extraerTextosEntrantes.mockReturnValue([
-        {
-          from: "5215550000000",
-          body: "activa mejoravit",
-          wamid: "wamid.cmd.7",
-          phoneNumberId: COMPRA_CASA_PHONE_NUMBER_ID,
-        },
-      ]);
-
-      await postWebhook();
-
-      expect(mocks.aplicarComandoProducto).not.toHaveBeenCalled();
-      expect(mocks.procesarYEvolucionar).toHaveBeenCalled();
+      expect(mocks.aplicarComandoProducto).toHaveBeenCalledWith(
+        "5218100000000",
+        "mejoravit",
+      );
+      expect(mocks.procesarYEvolucionar).not.toHaveBeenCalled();
     });
 
     it("usa el phone_number_id de Meta, no el del entorno", async () => {

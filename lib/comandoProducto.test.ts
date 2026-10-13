@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getConversation: vi.fn(),
@@ -23,7 +23,6 @@ import {
   aplicarComandoProducto,
   detectarComandoProducto,
   esNumeroConComandoProducto,
-  esRemitenteAutorizadoComando,
 } from "@/lib/comandoProducto";
 import { COMPRA_CASA_PHONE_NUMBER_ID } from "@/lib/detectarProducto";
 
@@ -65,37 +64,6 @@ describe("esNumeroConComandoProducto", () => {
     expect(esNumeroConComandoProducto("999999999999999")).toBe(false);
     expect(esNumeroConComandoProducto(null)).toBe(false);
     expect(esNumeroConComandoProducto(undefined)).toBe(false);
-  });
-});
-
-describe("esRemitenteAutorizadoComando", () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
-  it("sin COMANDO_PRODUCTO_TEST_PHONES el comando queda deshabilitado", () => {
-    vi.stubEnv("COMANDO_PRODUCTO_TEST_PHONES", "");
-    expect(esRemitenteAutorizadoComando("5218112345678")).toBe(false);
-  });
-
-  it("autoriza solo a los teléfonos de la lista", () => {
-    vi.stubEnv("COMANDO_PRODUCTO_TEST_PHONES", "5218112345678, 5215511112222");
-    expect(esRemitenteAutorizadoComando("5218112345678")).toBe(true);
-    expect(esRemitenteAutorizadoComando("5215511112222")).toBe(true);
-    expect(esRemitenteAutorizadoComando("5218199999999")).toBe(false);
-  });
-
-  it("acepta la lista con +, espacios y con o sin el 1 de celular mexicano", () => {
-    vi.stubEnv("COMANDO_PRODUCTO_TEST_PHONES", "+52 81 1234 5678");
-    expect(esRemitenteAutorizadoComando("5218112345678")).toBe(true);
-    vi.stubEnv("COMANDO_PRODUCTO_TEST_PHONES", "+52 1 81 1234 5678");
-    expect(esRemitenteAutorizadoComando("528112345678")).toBe(true);
-  });
-
-  it("no confunde números con los mismos dígitos finales", () => {
-    vi.stubEnv("COMANDO_PRODUCTO_TEST_PHONES", "5218112345678");
-    expect(esRemitenteAutorizadoComando("18112345678")).toBe(false);
-    expect(esRemitenteAutorizadoComando("8112345678")).toBe(false);
   });
 });
 

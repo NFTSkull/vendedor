@@ -25,22 +25,6 @@ export function esNumeroConComandoProducto(
   return phoneNumberId?.trim() === COMPRA_CASA_PHONE_NUMBER_ID;
 }
 
-/** WhatsApp entrega celulares de México como 521XXXXXXXXXX; se tratan igual que 52XXXXXXXXXX. */
-function normalizarTelefono(telefono: string): string {
-  const digitos = telefono.replace(/\D/g, "");
-  return /^521\d{10}$/.test(digitos) ? `52${digitos.slice(3)}` : digitos;
-}
-
-/** Sin COMANDO_PRODUCTO_TEST_PHONES (lista separada por comas) el comando queda deshabilitado. */
-export function esRemitenteAutorizadoComando(from: string): boolean {
-  const autorizados = (process.env.COMANDO_PRODUCTO_TEST_PHONES ?? "")
-    .split(",")
-    .map(normalizarTelefono)
-    .filter(Boolean);
-  if (autorizados.length === 0) return false;
-  return autorizados.includes(normalizarTelefono(from));
-}
-
 /** Solo reconoce el mensaje completo como comando, para no dispararse dentro de frases normales. */
 export function detectarComandoProducto(texto: string): ProductoForzado | null {
   const n = normalizarTexto(texto)
