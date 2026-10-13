@@ -45,11 +45,7 @@ import {
   prepararTramiteTrasPrecalificacion,
   type TramiteMejoravit,
 } from "@/lib/tramiteMejoravit";
-import {
-  guardarTramiteMejoravit,
-  leerLeadConTramite,
-  sinTramiteMejoravit,
-} from "@/lib/tramiteMejoravitRepo";
+import { guardarTramiteMejoravit, leerLeadConTramite } from "@/lib/tramiteMejoravitRepo";
 
 const AHORA = "2026-10-13T12:00:00.000Z";
 
@@ -113,13 +109,5 @@ describe("guardarTramiteMejoravit (concurrencia optimista)", () => {
       tramite: actual ?? base(),
     }));
     expect(r?.tramite.datos.nombres?.valor).toBe("Juan");
-  });
-});
-
-describe("sinTramiteMejoravit", () => {
-  it("quita el JSON del trámite de las respuestas del CRM sin tocar el resto del lead", () => {
-    const lead = { id: "lead-1", estado: "nuevo", tramite_mejoravit: { datos: { curp: { valor: "X" } } } };
-    expect(sinTramiteMejoravit(lead)).toEqual({ id: "lead-1", estado: "nuevo" });
-    expect(lead.tramite_mejoravit).toBeDefined();
   });
 });

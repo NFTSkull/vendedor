@@ -1,4 +1,4 @@
-import { requireCrmAuth } from "@/lib/crmAuth";
+import { autorizarLeadCrm } from "@/lib/crmAcceso";
 import {
   MAX_ARCHIVO_CHAT_BYTES,
   mimePermitidoEnChat,
@@ -9,6 +9,7 @@ import { guardarMensaje } from "@/lib/messagesDb";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   enviarMediaWa,
+  errorGraphParaLog,
   esErrorVentana24hWhatsApp,
   resolverTipoWaMedia,
   subirMediaWa,
@@ -22,12 +23,14 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export async function POST(req: Request, ctx: Ctx): Promise<Response> {
   try {
-    const auth = await requireCrmAuth(req);
-    if (!auth) {
-      return Response.json({ error: "No autorizado" }, { status: 401 });
-    }
-
     const { id: leadId } = await ctx.params;
+    const acceso = await autorizarLeadCrm<{ whatsapp_phone: string; estado: string }>(
+      req,
+      leadId,
+      "id, whatsapp_phone, estado",
+    );
+    if ("respuesta" in acceso) return acceso.respuesta;
+    const { asesor, lead } = acceso;
 
     let formData: FormData;
     try {
@@ -78,21 +81,6 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
       );
     }
 
-    const supabase = getSupabaseAdmin();
-    const { data: lead, error: leadError } = await supabase
-      .from("leads")
-      .select("id, whatsapp_phone, estado")
-      .eq("id", leadId)
-      .maybeSingle();
-
-    if (leadError) {
-      console.error("[CRM media POST] Error lead:", leadError);
-      return Response.json({ error: "Error interno" }, { status: 500 });
-    }
-
-    if (!lead) {
-      return Response.json({ error: "Lead no encontrado" }, { status: 404 });
-    }
     if (!ESTADOS_PERMITIDOS_CHAT.has(lead.estado)) {
       return Response.json(
         { error: "El estado del lead no permite enviar mensajes" },
@@ -113,7 +101,7 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
     });
 
     if (!subida.ok) {
-      console.error("[CRM media POST] Error subiendo media:", subida.status, subida.data);
+      console.error("[CRM media POST] Error subiendo media:", subida.status, errorGraphParaLog(subida.data));
       if (esErrorVentana24hWhatsApp(subida.data)) {
         return Response.json({ error: MSG_ERROR_VENTANA_24H_WHATSAPP }, { status: 502 });
       }
@@ -136,7 +124,7 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
     });
 
     if (!envio.ok) {
-      console.error("[CRM media POST] WhatsApp send error:", envio.status, envio.data);
+      console.error("[CRM media POST] WhatsApp send error:", envio.status, errorGraphParaLog(envio.data));
       if (esErrorVentana24hWhatsApp(envio.data)) {
         return Response.json({ error: MSG_ERROR_VENTANA_24H_WHATSAPP }, { status: 502 });
       }
@@ -153,7 +141,7 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
       direccion: "saliente",
       contenido: contenidoHistorial,
       origen: "asesor",
-      advisorId: auth.sub,
+      advisorId: asesor.id,
     });
 
     if (!guardado) {
@@ -163,9 +151,9 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
       );
     }
 
-    const { error: actionError } = await supabase.from("lead_actions").insert({
+    const { error: actionError } = await getSupabaseAdmin().from("lead_actions").insert({
       lead_id: leadId,
-      advisor_id: auth.sub,
+      advisor_id: asesor.id,
       accion: "archivo_asesor",
       nota: filename,
     });

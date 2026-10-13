@@ -159,6 +159,12 @@ export async function enviarMediaWa(params: {
   return { ok: res.ok, status: res.status, data };
 }
 
+/** Solo código y tipo del error de Graph: el mensaje puede incluir el número destino. */
+export function errorGraphParaLog(data: unknown): { code: unknown; type: unknown } | null {
+  const error = (data as { error?: { code?: unknown; type?: unknown } } | null)?.error;
+  return error ? { code: error.code ?? null, type: error.type ?? null } : null;
+}
+
 /** Errores típicos de Meta fuera de la ventana de 24 h de mensaje libre. */
 export function esErrorVentana24hWhatsApp(data: unknown): boolean {
   if (!data || typeof data !== "object") return false;

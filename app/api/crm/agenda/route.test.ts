@@ -23,7 +23,7 @@ vi.mock("@/lib/supabaseAdmin", () => ({
             eq: () => ({
               maybeSingle: () =>
                 Promise.resolve({
-                  data: { email: mocks.advisorEmail },
+                  data: { id: mocks.authSub, email: mocks.advisorEmail, activo: true },
                   error: null,
                 }),
             }),

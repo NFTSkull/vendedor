@@ -1,4 +1,4 @@
-import { requireCrmAuth } from "@/lib/crmAuth";
+import { autorizarAsesorCrm, conAlcance } from "@/lib/crmAcceso";
 import {
   agruparLeadsEnAgenda,
   type LeadAgendaInput,
@@ -7,26 +7,13 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function GET(req: Request): Promise<Response> {
   try {
-    const auth = await requireCrmAuth(req);
-    if (!auth) {
-      return Response.json({ error: "No autorizado" }, { status: 401 });
-    }
+    const sesion = await autorizarAsesorCrm(req);
+    if ("respuesta" in sesion) return sesion.respuesta;
 
     const { searchParams } = new URL(req.url);
     const producto = searchParams.get("producto");
 
     const supabase = getSupabaseAdmin();
-
-    const { data: advisor, error: advisorError } = await supabase
-      .from("advisors")
-      .select("email")
-      .eq("id", auth.sub)
-      .maybeSingle();
-
-    if (advisorError) {
-      console.error("[CRM agenda GET] Error consultando asesor:", advisorError);
-      return Response.json({ error: "Error interno" }, { status: 500 });
-    }
 
     let query = supabase
       .from("leads")
@@ -39,12 +26,7 @@ export async function GET(req: Request): Promise<Response> {
       query = query.eq("producto", producto);
     }
 
-    const esAdmin = advisor?.email?.toLowerCase() === "admin@mejoravit.com";
-    if (esAdmin) {
-      query = query.is("advisor_id", null);
-    } else {
-      query = query.eq("advisor_id", auth.sub);
-    }
+    query = conAlcance(query, sesion.asesor);
 
     const { data, error } = await query;
 

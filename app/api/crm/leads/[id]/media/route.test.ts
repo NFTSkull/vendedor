@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MAX_ARCHIVO_CHAT_BYTES } from "@/lib/crmMediaUpload";
 
+const LEAD_1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const ASESOR = "11111111-1111-4111-8111-111111111111";
+
 const mocks = vi.hoisted(() => ({
+  advisor: null as Record<string, unknown> | null,
   requireCrmAuth: vi.fn(),
   subirMediaWa: vi.fn(),
   enviarMediaWa: vi.fn(),
@@ -21,6 +25,7 @@ vi.mock("@/lib/whatsappCloud", () => ({
   resolverTipoWaMedia: (mime: string) =>
     mime === "image/jpeg" || mime === "image/png" ? "image" : "document",
   esErrorVentana24hWhatsApp: () => false,
+  errorGraphParaLog: () => null,
 }));
 
 vi.mock("@/lib/messagesDb", () => ({
@@ -30,6 +35,13 @@ vi.mock("@/lib/messagesDb", () => ({
 vi.mock("@/lib/supabaseAdmin", () => ({
   getSupabaseAdmin: () => ({
     from: (table: string) => {
+      if (table === "advisors") {
+        return {
+          select: () => ({
+            eq: () => ({ maybeSingle: async () => ({ data: mocks.advisor, error: null }) }),
+          }),
+        };
+      }
       if (table === "leads") {
         return {
           select: () => ({
@@ -58,7 +70,7 @@ function requestConArchivo(args: {
   const file = new File([bytes], args.name ?? "archivo.bin", { type: args.mime });
   const form = new FormData();
   form.append("file", file);
-  return new Request("http://localhost/api/crm/leads/lead-1/media", {
+  return new Request(`http://localhost/api/crm/leads/${LEAD_1}/media`, {
     method: "POST",
     headers: { Authorization: "Bearer token" },
     body: form,
@@ -70,9 +82,10 @@ describe("POST /api/crm/leads/[id]/media", () => {
     process.env.WHATSAPP_ACCESS_TOKEN = "token";
     process.env.WHATSAPP_PHONE_NUMBER_ID = "phone-id";
 
-    mocks.requireCrmAuth.mockResolvedValue({ sub: "advisor-1" });
+    mocks.requireCrmAuth.mockResolvedValue({ sub: ASESOR });
+    mocks.advisor = { id: ASESOR, email: "asesor@example.com", activo: true };
     mocks.maybeSingleLead.mockResolvedValue({
-      data: { id: "lead-1", whatsapp_phone: "5215550000000", estado: "nuevo" },
+      data: { id: LEAD_1, whatsapp_phone: "5215550000000", estado: "nuevo", advisor_id: ASESOR },
       error: null,
     });
     mocks.subirMediaWa.mockResolvedValue({ ok: true, mediaId: "media-1" });
@@ -94,7 +107,7 @@ describe("POST /api/crm/leads/[id]/media", () => {
       name: "nota.txt",
     });
 
-    const res = await POST(req, { params: Promise.resolve({ id: "lead-1" }) });
+    const res = await POST(req, { params: Promise.resolve({ id: LEAD_1 }) });
     const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(400);
@@ -109,7 +122,7 @@ describe("POST /api/crm/leads/[id]/media", () => {
       name: "grande.pdf",
     });
 
-    const res = await POST(req, { params: Promise.resolve({ id: "lead-1" }) });
+    const res = await POST(req, { params: Promise.resolve({ id: LEAD_1 }) });
     const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(413);
@@ -124,17 +137,17 @@ describe("POST /api/crm/leads/[id]/media", () => {
       name: "cotizacion.pdf",
     });
 
-    const res = await POST(req, { params: Promise.resolve({ id: "lead-1" }) });
+    const res = await POST(req, { params: Promise.resolve({ id: LEAD_1 }) });
 
     expect(res.status).toBe(200);
     expect(mocks.subirMediaWa).toHaveBeenCalledOnce();
     expect(mocks.enviarMediaWa).toHaveBeenCalledOnce();
     expect(mocks.guardarMensaje).toHaveBeenCalledWith({
-      leadId: "lead-1",
+      leadId: LEAD_1,
       direccion: "saliente",
       contenido: "📎 cotizacion.pdf",
       origen: "asesor",
-      advisorId: "advisor-1",
+      advisorId: ASESOR,
     });
     expect(mocks.insertLeadAction).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -142,5 +155,37 @@ describe("POST /api/crm/leads/[id]/media", () => {
         nota: "cotizacion.pdf",
       }),
     );
+  });
+
+  it("subida de archivo hacia un lead ajeno: 403 sin leer el archivo ni llamar a Meta", async () => {
+    mocks.maybeSingleLead.mockResolvedValue({
+      data: { id: LEAD_1, whatsapp_phone: "5215550000000", estado: "nuevo", advisor_id: "otro-asesor" },
+      error: null,
+    });
+    const req = requestConArchivo({ mime: "application/pdf", size: 1024, name: "x.pdf" });
+    const leerArchivo = vi.spyOn(req, "formData");
+
+    const res = await POST(req, { params: Promise.resolve({ id: LEAD_1 }) });
+
+    expect(res.status).toBe(403);
+    expect(leerArchivo).not.toHaveBeenCalled();
+    expect(mocks.subirMediaWa).not.toHaveBeenCalled();
+    expect(mocks.enviarMediaWa).not.toHaveBeenCalled();
+    expect(mocks.guardarMensaje).not.toHaveBeenCalled();
+  });
+
+  it("sin sesión 401 y asesor inactivo 403, sin procesar el archivo", async () => {
+    mocks.requireCrmAuth.mockResolvedValueOnce(null);
+    const sinSesion = await POST(requestConArchivo({ mime: "application/pdf", size: 10 }), {
+      params: Promise.resolve({ id: LEAD_1 }),
+    });
+    expect(sinSesion.status).toBe(401);
+
+    mocks.advisor = { id: ASESOR, email: "asesor@example.com", activo: false };
+    const inactivo = await POST(requestConArchivo({ mime: "application/pdf", size: 10 }), {
+      params: Promise.resolve({ id: LEAD_1 }),
+    });
+    expect(inactivo.status).toBe(403);
+    expect(mocks.subirMediaWa).not.toHaveBeenCalled();
   });
 });

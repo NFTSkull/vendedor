@@ -1,8 +1,8 @@
 import { z } from "zod";
 
-import { requireCrmAuth } from "@/lib/crmAuth";
+import { autorizarLeadCrm, conAlcance } from "@/lib/crmAcceso";
+import { COLUMNAS_LEAD_DETALLE, leadDetalleParaCrm } from "@/lib/crmLeadDetalle";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { sinTramiteMejoravit } from "@/lib/tramiteMejoravitRepo";
 
 const PatchSchema = z
   .object({
@@ -22,30 +22,11 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(req: Request, ctx: Ctx): Promise<Response> {
   try {
-    const auth = await requireCrmAuth(req);
-    if (!auth) {
-      return Response.json({ error: "No autorizado" }, { status: 401 });
-    }
-
     const { id } = await ctx.params;
-    const supabase = getSupabaseAdmin();
+    const acceso = await autorizarLeadCrm(req, id, COLUMNAS_LEAD_DETALLE);
+    if ("respuesta" in acceso) return acceso.respuesta;
 
-    const { data, error } = await supabase
-      .from("leads")
-      .select("*")
-      .eq("id", id)
-      .maybeSingle();
-
-    if (error) {
-      console.error("[CRM lead GET] Error:", error);
-      return Response.json({ error: "Error interno" }, { status: 500 });
-    }
-
-    if (!data) {
-      return Response.json({ error: "Lead no encontrado" }, { status: 404 });
-    }
-
-    return Response.json(sinTramiteMejoravit(data), { status: 200 });
+    return Response.json(leadDetalleParaCrm(acceso.lead), { status: 200 });
   } catch (err) {
     console.error("[CRM lead GET] Error:", err);
     return Response.json({ error: "Error interno" }, { status: 500 });
@@ -54,18 +35,17 @@ export async function GET(req: Request, ctx: Ctx): Promise<Response> {
 
 export async function PATCH(req: Request, ctx: Ctx): Promise<Response> {
   try {
-    const auth = await requireCrmAuth(req);
-    if (!auth) {
-      return Response.json({ error: "No autorizado" }, { status: 401 });
-    }
+    const { id } = await ctx.params;
+    const acceso = await autorizarLeadCrm(req, id, "id");
+    if ("respuesta" in acceso) return acceso.respuesta;
+    const { asesor } = acceso;
 
-    const body = await req.json();
+    const body = await req.json().catch(() => null);
     const parsed = PatchSchema.safeParse(body);
     if (!parsed.success) {
       return Response.json({ error: "Body inválido" }, { status: 400 });
     }
 
-    const { id } = await ctx.params;
     const { estado, nota, fecha_contacto, fecha_contacto_origen } = parsed.data;
     const supabase = getSupabaseAdmin();
 
@@ -83,11 +63,11 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<Response> {
       updatePayload.fecha_contacto_origen = fecha_contacto_origen ?? "manual";
     }
 
-    const { data: updated, error: updateError } = await supabase
-      .from("leads")
-      .update(updatePayload)
-      .eq("id", id)
-      .select("*")
+    const { data: updated, error: updateError } = await conAlcance(
+      supabase.from("leads").update(updatePayload).eq("id", id),
+      asesor,
+    )
+      .select(COLUMNAS_LEAD_DETALLE)
       .maybeSingle();
 
     if (updateError) {
@@ -96,13 +76,13 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<Response> {
     }
 
     if (!updated) {
-      return Response.json({ error: "Lead no encontrado" }, { status: 404 });
+      return Response.json({ error: "Sin permisos sobre este lead" }, { status: 403 });
     }
 
     if (estado !== undefined) {
       const { error: actionError } = await supabase.from("lead_actions").insert({
         lead_id: id,
-        advisor_id: auth.sub,
+        advisor_id: asesor.id,
         accion: estado,
         nota: nota ?? null,
       });
@@ -116,7 +96,9 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<Response> {
       }
     }
 
-    return Response.json(updated, { status: 200 });
+    return Response.json(leadDetalleParaCrm(updated as unknown as Record<string, unknown>), {
+      status: 200,
+    });
   } catch (err) {
     console.error("[CRM lead PATCH] Error:", err);
     return Response.json({ error: "Error interno" }, { status: 500 });

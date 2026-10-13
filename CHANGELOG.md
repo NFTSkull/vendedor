@@ -1,5 +1,22 @@
 # Changelog
 
+## [Sin versión semver] — 2026-10-13 (seguridad: expedientes del CRM y permisos Supabase)
+
+### Cambio actual
+
+- **Autorización por expediente (`lib/crmAcceso.ts`):** `GET`/`PATCH /api/crm/leads/[id]`, `GET`/`POST /api/crm/leads/[id]/messages` y `POST /api/crm/leads/[id]/media` comprueban sesión, asesor activo y que el lead esté en su alcance antes de leer mensajes, procesar archivos, escribir o llamar a Meta.
+  - Regla de la bandeja: el admin opera leads sin asignar y cada asesor solo los suyos.
+  - Respuestas: 401 sin sesión o con token inválido; 403 si el asesor está inactivo o el lead es ajeno; 404 si el ID no es UUID o no existe.
+  - El teléfono destino de WhatsApp siempre sale de la base.
+- **Condición de propiedad en escrituras:** el UPDATE de `PATCH` y los UPDATE del lead al responder por chat incluyen el alcance del asesor. Si el lead se reasigna entre la verificación y la escritura, no se modifica y `PATCH` responde 403.
+- **Bandeja y agenda:** también exigen asesor activo y usan el mismo filtro de alcance (`conAlcance`).
+- **Respuestas mínimas:**
+  - Detalle y `PATCH` devuelven solo las columnas que usa la pantalla. No incluyen `tramite_mejoravit`, `advisor_id` ni campos internos. De `precalificacion_resultado` solo salen `califica`, `mensaje` y `datos.saldoSubcuenta` (sin RFC, empresa ni registro patronal).
+  - La bandeja ya no devuelve NSS, precalificación ni trámite.
+- **Logs:** los errores de la Graph API en mensajes y archivos del CRM solo registran código y tipo.
+- **`/api/precalificar`:** usa la misma autorización compartida, sin cambio de comportamiento.
+- **Supabase (`supabase/sql/revocar_privilegios_publicos.sql`, aplicado en `lxqvslupzxnkdzbhojad`):** se retiran todos los permisos de `anon`/`authenticated`, incluido TRUNCATE, en `leads`, `messages`, `advisors`, `lead_actions`, `whatsapp_accounts` y `crm_push_subscriptions`. RLS, políticas, datos, índices, funciones y `service_role` sin cambios.
+
 ## [Sin versión semver] — 2026-10-13 (seguridad: /api/precalificar y conversations)
 
 ### Cambio actual

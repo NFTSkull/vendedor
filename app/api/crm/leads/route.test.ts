@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   leadsData: [] as Record<string, unknown>[],
   messagesData: [] as Record<string, unknown>[],
   advisorEmail: "bernard@example.com",
+  columnasLeads: "",
+  inactivo: false,
 }));
 
 vi.mock("@/lib/crmAuth", () => ({
@@ -20,7 +22,7 @@ vi.mock("@/lib/supabaseAdmin", () => ({
             eq: () => ({
               maybeSingle: () =>
                 Promise.resolve({
-                  data: { email: mocks.advisorEmail },
+                  data: { id: "advisor-1", email: mocks.advisorEmail, activo: !mocks.inactivo },
                   error: null,
                 }),
             }),
@@ -30,12 +32,15 @@ vi.mock("@/lib/supabaseAdmin", () => ({
 
       if (table === "leads") {
         return {
-          select: () => ({
-            eq: () => ({
-              eq: () =>
-                Promise.resolve({ data: mocks.leadsData, error: null }),
-            }),
-          }),
+          select: (columnas: string) => {
+            mocks.columnasLeads = columnas;
+            return {
+              eq: () => ({
+                eq: () =>
+                  Promise.resolve({ data: mocks.leadsData, error: null }),
+              }),
+            };
+          },
         };
       }
 
@@ -129,5 +134,17 @@ describe("GET /api/crm/leads", () => {
     expect(body.map((l) => l.id)).toEqual(["lead-c", "lead-a", "lead-b"]);
     expect(body[1]?.ultima_actividad_at).toBe("2026-06-10T10:00:00Z");
     expect(body[2]?.ultima_actividad_at).toBe("2026-06-10T08:00:00Z");
+  });
+
+  it("pide solo las columnas de la bandeja: sin NSS, precalificación ni trámite", async () => {
+    mocks.leadsData = [];
+    expect((await getLeads()).status).toBe(200);
+    expect(mocks.columnasLeads).not.toMatch(/\*|nss|precalificacion|tramite_mejoravit|advisor_id/);
+  });
+
+  it("asesor inactivo: 403", async () => {
+    mocks.inactivo = true;
+    expect((await getLeads()).status).toBe(403);
+    mocks.inactivo = false;
   });
 });

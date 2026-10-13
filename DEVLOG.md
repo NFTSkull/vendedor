@@ -1,5 +1,23 @@
 # DEVLOG
 
+## 2026-10-13 (seguridad: expedientes del CRM y permisos Supabase)
+
+- **`lib/crmAcceso.ts`:**
+  - `autorizarAsesorCrm` relee el asesor y exige `activo = true`, porque el JWT dura 7 días.
+  - `leadEnAlcance` y `conAlcance` reproducen la regla de la bandeja (`admin@mejoravit.com` con `advisor_id` nulo; los demás con `advisor_id = sub`).
+  - `autorizarLeadCrm` valida el UUID, carga el lead con `advisor_id` y lo descarta de la respuesta.
+  - Decisión: lead ajeno → 403, lead inexistente → 404, igual que `/api/precalificar`.
+- **Orden:** la autorización va antes de parsear el cuerpo. En `media`, también antes de leer el `formData`, para no procesar archivos de solicitudes no autorizadas.
+- **Concurrencia:** en `PATCH`, si el UPDATE condicionado no devuelve fila, se responde 403 y no se registra la acción. El envío a Meta no puede condicionarse en la base; se autoriza justo antes. La ventana restante es la latencia entre leer el lead y enviar.
+- **Respuestas:** `COLUMNAS_LEAD_DETALLE` y `leadDetalleParaCrm` (`lib/crmLeadDetalle.ts`) contienen lo que lee `app/crm/leads/[id]/page.tsx`. Se eliminó `sinTramiteMejoravit`, sustituida por columnas explícitas.
+- **No se tocó `app/api/crm/leads/broadcast/route.ts`:** ya filtra por alcance con columnas explícitas y tiene un cambio pendiente en otra copia del repositorio.
+- **Auditoría de privilegios:**
+  - Las 7 tablas públicas tenían RLS sin políticas, pero conservaban los grants por defecto a `anon`/`authenticated`, incluido TRUNCATE (que no pasa por RLS).
+  - No hay usuarios de Auth, Edge Functions, buckets, vistas ni políticas.
+  - En 24 h, todo el tráfico legítimo usó la llave `sb_secret_` (`service_role`, `rolbypassrls`). Las únicas solicitudes con la llave publicable fueron pruebas de seguridad.
+  - Las dos funciones de `public` son de trigger y no se modificaron.
+- **Pendiente:** los privilegios por defecto del esquema `public` siguen otorgando todo a `anon`/`authenticated` en tablas futuras. Cada tabla nueva debe activar RLS y revocar esos permisos en su migración.
+
 ## 2026-10-13 (seguridad: /api/precalificar y conversations)
 
 - **Alcance en `/api/precalificar`:** se reutiliza la regla de la bandeja (`admin@mejoravit.com` opera leads con `advisor_id` nulo y cada asesor los suyos). Decisión: no basta un JWT válido; se relee el asesor y se exige `activo = true`, para que una baja surta efecto antes de que expire el token de 7 días.

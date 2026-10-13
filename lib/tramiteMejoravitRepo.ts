@@ -11,13 +11,6 @@ export type LeadConTramite = {
   saldoSubcuenta: string | null;
 };
 
-/** El CRM aún no muestra el trámite: no se expone (CURP, referencias, domicilio) en sus respuestas. */
-export function sinTramiteMejoravit<T extends Record<string, unknown>>(lead: T): Omit<T, "tramite_mejoravit"> {
-  const { tramite_mejoravit: _omitido, ...resto } = lead;
-  void _omitido;
-  return resto;
-}
-
 function esTramite(valor: unknown): valor is TramiteMejoravit {
   if (!valor || typeof valor !== "object" || Array.isArray(valor)) return false;
   const v = valor as Record<string, unknown>;

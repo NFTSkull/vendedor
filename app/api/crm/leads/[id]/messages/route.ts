@@ -1,9 +1,9 @@
 import { z } from "zod";
 
-import { requireCrmAuth } from "@/lib/crmAuth";
+import { autorizarLeadCrm, conAlcance } from "@/lib/crmAcceso";
 import { guardarMensaje, listarMensajesPorLead } from "@/lib/messagesDb";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { enviarMensajeTextoWa } from "@/lib/whatsappCloud";
+import { enviarMensajeTextoWa, errorGraphParaLog } from "@/lib/whatsappCloud";
 
 const PostSchema = z.object({
   mensaje: z.string().trim().min(1).max(4000),
@@ -14,12 +14,10 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(req: Request, ctx: Ctx): Promise<Response> {
   try {
-    const auth = await requireCrmAuth(req);
-    if (!auth) {
-      return Response.json({ error: "No autorizado" }, { status: 401 });
-    }
-
     const { id } = await ctx.params;
+    const acceso = await autorizarLeadCrm(req, id, "id");
+    if ("respuesta" in acceso) return acceso.respuesta;
+
     const mensajes = await listarMensajesPorLead(id);
 
     return Response.json(mensajes, { status: 200 });
@@ -31,18 +29,21 @@ export async function GET(req: Request, ctx: Ctx): Promise<Response> {
 
 export async function POST(req: Request, ctx: Ctx): Promise<Response> {
   try {
-    const auth = await requireCrmAuth(req);
-    if (!auth) {
-      return Response.json({ error: "No autorizado" }, { status: 401 });
-    }
+    const { id: leadId } = await ctx.params;
+    const acceso = await autorizarLeadCrm<{ whatsapp_phone: string; estado: string }>(
+      req,
+      leadId,
+      "id, whatsapp_phone, estado",
+    );
+    if ("respuesta" in acceso) return acceso.respuesta;
+    const { asesor, lead } = acceso;
 
-    const body = await req.json();
+    const body = await req.json().catch(() => null);
     const parsed = PostSchema.safeParse(body);
     if (!parsed.success) {
       return Response.json({ error: "Body inválido" }, { status: 400 });
     }
 
-    const { id: leadId } = await ctx.params;
     const mensaje = parsed.data.mensaje;
 
     const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
@@ -58,20 +59,6 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
     }
 
     const supabase = getSupabaseAdmin();
-    const { data: lead, error: leadError } = await supabase
-      .from("leads")
-      .select("id, whatsapp_phone, estado")
-      .eq("id", leadId)
-      .maybeSingle();
-
-    if (leadError) {
-      console.error("[CRM messages POST] Error lead:", leadError);
-      return Response.json({ error: "Error interno" }, { status: 500 });
-    }
-
-    if (!lead) {
-      return Response.json({ error: "Lead no encontrado" }, { status: 404 });
-    }
     if (!ESTADOS_PERMITIDOS_CHAT.has(lead.estado)) {
       return Response.json(
         { error: "El estado del lead no permite enviar mensajes" },
@@ -88,7 +75,7 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
     });
 
     if (!envio.ok) {
-      console.error("[CRM messages POST] WhatsApp error:", envio.status, envio.data);
+      console.error("[CRM messages POST] WhatsApp error:", envio.status, errorGraphParaLog(envio.data));
       return Response.json(
         { error: "No se pudo enviar el mensaje por WhatsApp" },
         { status: 502 },
@@ -100,7 +87,7 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
       direccion: "saliente",
       contenido: mensaje,
       origen: "asesor",
-      advisorId: auth.sub,
+      advisorId: asesor.id,
     });
 
     if (!guardado) {
@@ -112,7 +99,7 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
 
     const { error: actionError } = await supabase.from("lead_actions").insert({
       lead_id: leadId,
-      advisor_id: auth.sub,
+      advisor_id: asesor.id,
       accion: "mensaje_asesor",
       nota: mensaje,
     });
@@ -124,22 +111,25 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
     // Advisor replied → mark as contactado + clear unread indicator
     // Only transition nuevo → contactado (never touch no_interesado)
     if (lead.estado === "nuevo") {
-      await supabase
-        .from("leads")
-        .update({ estado: "contactado", tiene_mensaje_nuevo: false })
-        .eq("id", leadId);
+      await conAlcance(
+        supabase
+          .from("leads")
+          .update({ estado: "contactado", tiene_mensaje_nuevo: false })
+          .eq("id", leadId),
+        asesor,
+      );
 
       await supabase.from("lead_actions").insert({
         lead_id: leadId,
-        advisor_id: auth.sub,
+        advisor_id: asesor.id,
         accion: "cambio_estado_automatico",
         nota: "Marcado como contactado (asesor respondió)",
       });
     } else {
-      await supabase
-        .from("leads")
-        .update({ tiene_mensaje_nuevo: false })
-        .eq("id", leadId);
+      await conAlcance(
+        supabase.from("leads").update({ tiene_mensaje_nuevo: false }).eq("id", leadId),
+        asesor,
+      );
     }
 
     return Response.json({ ok: true }, { status: 200 });

@@ -1,47 +1,31 @@
-import { requireCrmAuth } from "@/lib/crmAuth";
+import { autorizarAsesorCrm, conAlcance } from "@/lib/crmAcceso";
 import {
   enriquecerLeadConUltimoMensaje,
   mapUltimosMensajesPorLead,
   ordenarLeadsPorActividad,
 } from "@/lib/crmLeadsList";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { sinTramiteMejoravit } from "@/lib/tramiteMejoravitRepo";
+
+/** Lo que muestra la bandeja (`app/crm/leads/page.tsx`); sin NSS, precalificación ni trámite. */
+const COLUMNAS_BANDEJA = "id, whatsapp_phone, horario, estado, producto, created_at, tiene_mensaje_nuevo";
 
 export async function GET(req: Request): Promise<Response> {
   try {
-    const auth = await requireCrmAuth(req);
-    if (!auth) {
-      return Response.json({ error: "No autorizado" }, { status: 401 });
-    }
+    const sesion = await autorizarAsesorCrm(req);
+    if ("respuesta" in sesion) return sesion.respuesta;
 
     const { searchParams } = new URL(req.url);
     const producto = searchParams.get("producto");
 
     const supabase = getSupabaseAdmin();
 
-    const { data: advisor, error: advisorError } = await supabase
-      .from("advisors")
-      .select("email")
-      .eq("id", auth.sub)
-      .maybeSingle();
-
-    if (advisorError) {
-      console.error("[CRM leads GET] Error consultando asesor:", advisorError);
-      return Response.json({ error: "Error interno" }, { status: 500 });
-    }
-
-    let query = supabase.from("leads").select("*");
+    let query = supabase.from("leads").select(COLUMNAS_BANDEJA);
 
     if (producto) {
       query = query.eq("producto", producto);
     }
 
-    const esAdmin = advisor?.email?.toLowerCase() === "admin@mejoravit.com";
-    if (esAdmin) {
-      query = query.is("advisor_id", null);
-    } else {
-      query = query.eq("advisor_id", auth.sub);
-    }
+    query = conAlcance(query, sesion.asesor);
 
     const { data, error } = await query;
 
@@ -50,7 +34,7 @@ export async function GET(req: Request): Promise<Response> {
       return Response.json({ error: "Error interno" }, { status: 500 });
     }
 
-    const leads = (data ?? []).map(sinTramiteMejoravit);
+    const leads = data ?? [];
     const leadIds = leads.map((l) => l.id as string);
     const ultimosPorLead = await mapUltimosMensajesPorLead(supabase, leadIds);
 

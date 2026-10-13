@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requireCrmAuth } from "@/lib/crmAuth";
+import { autorizarAsesorCrm, leadEnAlcance } from "@/lib/crmAcceso";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 /**
@@ -42,7 +42,6 @@ type LeadObjetivo = {
   whatsapp_phone: string;
 };
 
-const ADMIN_EMAIL = "admin@mejoravit.com";
 const ACCION_SOLICITADA = "precalificacion_solicitada";
 const ACCION_COMPLETADA = "precalificacion_completada";
 /** El scraper tiene timeout de 180 s: una solicitud más reciente se considera en curso. */
@@ -53,18 +52,15 @@ const VENTANA_LIMITE_MS = 10 * 60_000;
 const SCRAPER_URL = process.env.SCRAPER_SERVICE_URL;
 const SCRAPER_SECRET = process.env.SCRAPER_SECRET;
 
-/** Mismo alcance que la bandeja del CRM: el admin opera leads sin asignar y cada asesor los suyos. */
-function enAlcance(advisorIdLead: string | null, advisorId: string, esAdmin: boolean): boolean {
-  return esAdmin ? advisorIdLead === null : advisorIdLead === advisorId;
-}
-
 function error(mensaje: string, status: number): Response {
   return Response.json({ error: mensaje }, { status });
 }
 
 export async function POST(request: Request) {
-  const auth = await requireCrmAuth(request);
-  if (!auth) return error("No autorizado", 401);
+  const sesion = await autorizarAsesorCrm(request);
+  if ("respuesta" in sesion) return sesion.respuesta;
+  const { asesor } = sesion;
+  const advisorId = asesor.id;
 
   let body: unknown;
   try {
@@ -76,17 +72,8 @@ export async function POST(request: Request) {
   if (!parsed.success) return error("Parámetros inválidos", 400);
 
   const supabase = getSupabaseAdmin();
-  const advisorId = auth.sub;
 
   try {
-    const { data: advisor, error: advisorError } = await supabase
-      .from("advisors")
-      .select("id, email, activo")
-      .eq("id", advisorId)
-      .maybeSingle();
-    if (advisorError) throw advisorError;
-    if (!advisor || advisor.activo !== true) return error("Sin permisos", 403);
-    const esAdmin = String(advisor.email ?? "").toLowerCase() === ADMIN_EMAIL;
 
     let lead: LeadObjetivo;
     if ("leadId" in parsed.data) {
@@ -97,7 +84,7 @@ export async function POST(request: Request) {
         .maybeSingle();
       if (leadError) throw leadError;
       if (!data) return error("Lead no encontrado", 404);
-      if (!enAlcance(data.advisor_id, advisorId, esAdmin)) return error("Sin permisos sobre este lead", 403);
+      if (!leadEnAlcance(data.advisor_id, asesor)) return error("Sin permisos sobre este lead", 403);
       if (typeof data.nss !== "string" || !/^\d{11}$/.test(data.nss)) {
         return error("Este lead no tiene un NSS válido", 400);
       }
@@ -111,7 +98,7 @@ export async function POST(request: Request) {
         .select("advisor_id")
         .eq("nss", nss);
       if (nssError) throw nssError;
-      if ((conMismoNss ?? []).some((l) => !enAlcance(l.advisor_id, advisorId, esAdmin))) {
+      if ((conMismoNss ?? []).some((l) => !leadEnAlcance(l.advisor_id, asesor))) {
         return error("Sin permisos sobre este NSS", 403);
       }
 
@@ -125,7 +112,7 @@ export async function POST(request: Request) {
       if (phoneError) throw phoneError;
 
       if (existente) {
-        if (!enAlcance(existente.advisor_id, advisorId, esAdmin)) {
+        if (!leadEnAlcance(existente.advisor_id, asesor)) {
           return error("Sin permisos sobre este teléfono", 403);
         }
         if (typeof existente.nss === "string" && existente.nss.trim() && existente.nss !== nss) {
@@ -139,7 +126,7 @@ export async function POST(request: Request) {
             whatsapp_phone: phone,
             estado: "nuevo",
             nss,
-            advisor_id: esAdmin ? null : advisorId,
+            advisor_id: asesor.esAdmin ? null : advisorId,
           })
           .select("id, advisor_id, nss, whatsapp_phone")
           .single();
