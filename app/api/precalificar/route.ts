@@ -1,23 +1,24 @@
 import { z } from "zod";
 
+import { requireCrmAuth } from "@/lib/crmAuth";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
-const precalificarBodySchema = z
-  .object({
-    nss: z.string().min(1),
-    phoneNumber: z.string().optional(),
-    source: z.enum(["bot", "crm"]).optional().default("bot"),
-  })
-  .transform((data) => ({
-    ...data,
-    phoneNumber:
-      data.phoneNumber?.trim() ||
-      (data.source === "crm" ? `crm-${data.nss.replace(/\D/g, "")}` : ""),
-  }))
-  .refine((data) => data.phoneNumber.length > 0, {
-    message: "Falta phoneNumber",
-    path: ["phoneNumber"],
-  });
+/**
+ * Precalificación manual desde el CRM. El chatbot no usa esta ruta: consulta el scraper
+ * directamente desde el servidor (`lib/botStepsCore.ts`).
+ */
+const precalificarBodySchema = z.union([
+  z.object({ leadId: z.string().uuid() }).strict(),
+  z
+    .object({
+      nss: z.string().regex(/^\d{11}$/),
+      phoneNumber: z
+        .string()
+        .regex(/^\d{10,13}$/)
+        .optional(),
+    })
+    .strict(),
+]);
 
 type DatosCredito = {
   montoCredito?: number | string;
@@ -26,62 +27,179 @@ type DatosCredito = {
   pagoMensual?: number | string;
 };
 
-type RangosAprobados = {
-  minimo?: string;
-  maximo?: string;
-};
-
 type ResultadoPrecalificacion = {
   califica: boolean;
   nombre?: string;
   nss?: string;
   mensaje?: string;
   datos?: DatosCredito;
-  rangosAprobados?: RangosAprobados;
 };
+
+type LeadObjetivo = {
+  id: string;
+  advisor_id: string | null;
+  nss: string | null;
+  whatsapp_phone: string;
+};
+
+const ADMIN_EMAIL = "admin@mejoravit.com";
+const ACCION_SOLICITADA = "precalificacion_solicitada";
+const ACCION_COMPLETADA = "precalificacion_completada";
+/** El scraper tiene timeout de 180 s: una solicitud más reciente se considera en curso. */
+const VENTANA_EN_CURSO_MS = 200_000;
+const LIMITE_POR_ASESOR = 10;
+const VENTANA_LIMITE_MS = 10 * 60_000;
 
 const SCRAPER_URL = process.env.SCRAPER_SERVICE_URL;
 const SCRAPER_SECRET = process.env.SCRAPER_SECRET;
 
+/** Mismo alcance que la bandeja del CRM: el admin opera leads sin asignar y cada asesor los suyos. */
+function enAlcance(advisorIdLead: string | null, advisorId: string, esAdmin: boolean): boolean {
+  return esAdmin ? advisorIdLead === null : advisorIdLead === advisorId;
+}
+
+function error(mensaje: string, status: number): Response {
+  return Response.json({ error: mensaje }, { status });
+}
+
 export async function POST(request: Request) {
+  const auth = await requireCrmAuth(request);
+  if (!auth) return error("No autorizado", 401);
+
+  let body: unknown;
   try {
-    const parsed = precalificarBodySchema.safeParse(await request.json());
-    if (!parsed.success) {
-      return Response.json({ error: "Faltan parámetros" }, { status: 400 });
+    body = await request.json();
+  } catch {
+    return error("Body inválido", 400);
+  }
+  const parsed = precalificarBodySchema.safeParse(body);
+  if (!parsed.success) return error("Parámetros inválidos", 400);
+
+  const supabase = getSupabaseAdmin();
+  const advisorId = auth.sub;
+
+  try {
+    const { data: advisor, error: advisorError } = await supabase
+      .from("advisors")
+      .select("id, email, activo")
+      .eq("id", advisorId)
+      .maybeSingle();
+    if (advisorError) throw advisorError;
+    if (!advisor || advisor.activo !== true) return error("Sin permisos", 403);
+    const esAdmin = String(advisor.email ?? "").toLowerCase() === ADMIN_EMAIL;
+
+    let lead: LeadObjetivo;
+    if ("leadId" in parsed.data) {
+      const { data, error: leadError } = await supabase
+        .from("leads")
+        .select("id, advisor_id, nss, whatsapp_phone")
+        .eq("id", parsed.data.leadId)
+        .maybeSingle();
+      if (leadError) throw leadError;
+      if (!data) return error("Lead no encontrado", 404);
+      if (!enAlcance(data.advisor_id, advisorId, esAdmin)) return error("Sin permisos sobre este lead", 403);
+      if (typeof data.nss !== "string" || !/^\d{11}$/.test(data.nss)) {
+        return error("Este lead no tiene un NSS válido", 400);
+      }
+      lead = data as LeadObjetivo;
+    } else {
+      const { nss } = parsed.data;
+      const phone = parsed.data.phoneNumber ?? `crm-${nss}`;
+
+      const { data: conMismoNss, error: nssError } = await supabase
+        .from("leads")
+        .select("advisor_id")
+        .eq("nss", nss);
+      if (nssError) throw nssError;
+      if ((conMismoNss ?? []).some((l) => !enAlcance(l.advisor_id, advisorId, esAdmin))) {
+        return error("Sin permisos sobre este NSS", 403);
+      }
+
+      const { data: existente, error: phoneError } = await supabase
+        .from("leads")
+        .select("id, advisor_id, nss, whatsapp_phone")
+        .eq("whatsapp_phone", phone)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (phoneError) throw phoneError;
+
+      if (existente) {
+        if (!enAlcance(existente.advisor_id, advisorId, esAdmin)) {
+          return error("Sin permisos sobre este teléfono", 403);
+        }
+        if (typeof existente.nss === "string" && existente.nss.trim() && existente.nss !== nss) {
+          return error("El teléfono pertenece a un lead con otro NSS", 409);
+        }
+        lead = existente as LeadObjetivo;
+      } else {
+        const { data: creado, error: insertError } = await supabase
+          .from("leads")
+          .insert({
+            whatsapp_phone: phone,
+            estado: "nuevo",
+            nss,
+            advisor_id: esAdmin ? null : advisorId,
+          })
+          .select("id, advisor_id, nss, whatsapp_phone")
+          .single();
+        if (insertError) throw insertError;
+        lead = creado as LeadObjetivo;
+      }
+    }
+    const nss = lead.nss as string;
+
+    const ahora = Date.now();
+    const { count: recientes, error: countError } = await supabase
+      .from("lead_actions")
+      .select("id", { count: "exact", head: true })
+      .eq("advisor_id", advisorId)
+      .eq("accion", ACCION_SOLICITADA)
+      .gte("created_at", new Date(ahora - VENTANA_LIMITE_MS).toISOString());
+    if (countError) throw countError;
+    if ((recientes ?? 0) >= LIMITE_POR_ASESOR) {
+      return error("Demasiadas precalificaciones; intenta en unos minutos", 429);
     }
 
-    const { nss, phoneNumber, source } = parsed.data;
+    const { data: ultima, error: ultimaError } = await supabase
+      .from("lead_actions")
+      .select("accion, created_at")
+      .eq("lead_id", lead.id)
+      .in("accion", [ACCION_SOLICITADA, ACCION_COMPLETADA])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (ultimaError) throw ultimaError;
+    if (
+      ultima?.accion === ACCION_SOLICITADA &&
+      ahora - Date.parse(String(ultima.created_at)) < VENTANA_EN_CURSO_MS
+    ) {
+      return error("Ya hay una precalificación en curso para este lead", 409);
+    }
 
     if (!SCRAPER_URL || !SCRAPER_SECRET) {
-      return Response.json(
-        { error: "Servicio de precalificación no configurado" },
-        { status: 500 },
-      );
+      return error("Servicio de precalificación no configurado", 500);
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 180000);
-    let scraperRes: Response;
+    const { error: actionError } = await supabase.from("lead_actions").insert({
+      lead_id: lead.id,
+      advisor_id: advisorId,
+      accion: ACCION_SOLICITADA,
+      nota: null,
+    });
+    if (actionError) throw actionError;
+
+    let resultado: ResultadoPrecalificacion;
     try {
-      scraperRes = await fetch(`${SCRAPER_URL}/precalificar`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-scraper-secret": SCRAPER_SECRET,
-        },
-        body: JSON.stringify({ nss }),
-        signal: controller.signal,
+      resultado = await consultarScraper(nss);
+    } catch (err) {
+      console.error("[precalificar] Falla del scraper", {
+        lead_id: lead.id,
+        tipo: err instanceof Error && err.name === "AbortError" ? "timeout" : "error",
       });
-    } finally {
-      clearTimeout(timeoutId);
+      await registrarCompletada(lead.id, advisorId, "error");
+      return error("No se pudo completar la precalificación", 502);
     }
-
-    if (!scraperRes.ok) {
-      throw new Error(`Scraper error: ${scraperRes.status}`);
-    }
-
-    const resultado = (await scraperRes.json()) as ResultadoPrecalificacion;
-    const supabase = getSupabaseAdmin();
 
     const updateData: Record<string, unknown> = {
       nss,
@@ -103,61 +221,64 @@ export async function POST(request: Request) {
       updateData.pago_mensual = resultado.datos?.pagoMensual;
     }
 
-    const { data: leadExistente } = await supabase
-      .from("leads")
-      .select("id")
-      .eq("whatsapp_phone", phoneNumber)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const { error: updateError } = await supabase.from("leads").update(updateData).eq("id", lead.id);
+    if (updateError) throw updateError;
+    await registrarCompletada(lead.id, advisorId, resultado.califica ? "aprobado" : "rechazado");
 
-    if (leadExistente) {
-      await supabase
-        .from("leads")
-        .update(updateData)
-        .eq("id", leadExistente.id);
-    } else {
-      await supabase.from("leads").insert({
-        whatsapp_phone: phoneNumber,
-        estado: "nuevo",
-        ...updateData,
-      });
-    }
-
-    if (source !== "crm") {
-      const mensaje = resultado.califica
-        ? buildMensajeAprobado(resultado)
-        : buildMensajeRechazado(resultado);
-      await enviarWhatsApp(phoneNumber, mensaje);
-    }
-
-    return Response.json({ ok: true, resultado });
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : "Error desconocido";
-    return Response.json({ error: msg }, { status: 500 });
+    return Response.json({
+      ok: true,
+      leadId: lead.id,
+      resultado: {
+        califica: resultado.califica === true,
+        nombre: resultado.nombre,
+        nss,
+        mensaje: resultado.mensaje,
+        datos: {
+          saldoSubcuenta: resultado.datos?.saldoSubcuenta,
+          capacidadCompra: resultado.datos?.capacidadCompra,
+          pagoMensual: resultado.datos?.pagoMensual,
+        },
+      },
+    });
+  } catch (err) {
+    console.error("[precalificar] Error interno", {
+      advisor_id: advisorId,
+      codigo: (err as { code?: unknown } | null)?.code ?? null,
+    });
+    return error("Error interno", 500);
   }
 }
 
-function buildMensajeAprobado(resultado: ResultadoPrecalificacion) {
-  const { nombre, datos } = resultado;
-  const nombreFormato = (nombre ?? "")
-    .toLowerCase()
-    .replace(/\b\w/g, (c: string) => c.toUpperCase())
-    .trim();
+async function consultarScraper(nss: string): Promise<ResultadoPrecalificacion> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 180000);
+  try {
+    const res = await fetch(`${SCRAPER_URL}/precalificar`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-scraper-secret": SCRAPER_SECRET as string,
+      },
+      body: JSON.stringify({ nss }),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`scraper_http_${res.status}`);
+    return (await res.json()) as ResultadoPrecalificacion;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
-  const saldoSubcuenta = normalizarNumero(datos?.saldoSubcuenta);
-  const montoTexto =
-    saldoSubcuenta > 0
-      ? `*${formatearMoneda(Math.floor(saldoSubcuenta))}*`
-      : "en revisión con nuestro equipo";
-
-  return `✅ *¡Buenas noticias, ${nombreFormato}!*
-
-¡Tu precalificación con Infonavit está lista! 🏠
-
-🎉 *Tu saldo de subcuenta de vivienda es ${montoTexto}.*
-
-Un asesor se comunicará contigo en breve. 😊`;
+async function registrarCompletada(leadId: string, advisorId: string, nota: string) {
+  const { error: actionError } = await getSupabaseAdmin().from("lead_actions").insert({
+    lead_id: leadId,
+    advisor_id: advisorId,
+    accion: ACCION_COMPLETADA,
+    nota,
+  });
+  if (actionError) {
+    console.error("[precalificar] Error registrando lead_actions", { lead_id: leadId });
+  }
 }
 
 function normalizarNumero(value: number | string | undefined): number {
@@ -170,58 +291,4 @@ function normalizarNumero(value: number | string | undefined): number {
   const limpio = value.replace(/[^0-9.]/g, "");
   const num = Number(limpio);
   return Number.isFinite(num) ? num : 0;
-}
-
-function formatearMoneda(value: number): string {
-  return `$${value.toLocaleString("es-MX")}`;
-}
-
-function buildMensajeRechazado(resultado: ResultadoPrecalificacion) {
-  const mensajes: Record<string, string> = {
-    "SIN RELACION LABORAL VIGENTE":
-      "actualmente no cuentas con una relación laboral vigente registrada en el IMSS.",
-    "SIN APORTACIONES":
-      "no se encontraron aportaciones activas a tu Subcuenta de Vivienda.",
-    "NO CUMPLE": "no cumples con los requisitos mínimos en este momento.",
-    BAJA: "tu registro aparece como baja en el sistema de Infonavit.",
-  };
-
-  const razon =
-    mensajes[resultado.mensaje ?? ""] ||
-    "no fue posible completar la precalificación.";
-
-  return `ℹ️ *Resultado de tu precalificación*
-
-Revisamos tu NSS *${resultado.nss}* y encontramos que ${razon}
-
-Te recomendamos:
-1️⃣ Verificar con tu patrón que tus aportaciones estén al corriente
-2️⃣ Consultar en: *my.infonavit.org.mx*
-
-¿Te gustaría que un asesor te contacte? 🤝`;
-}
-
-async function enviarWhatsApp(phoneNumber: string, mensaje: string) {
-  const res = await fetch(
-    `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to: phoneNumber,
-        type: "text",
-        text: { body: mensaje },
-      }),
-    },
-  );
-
-  if (!res.ok) {
-    throw new Error(`WhatsApp API error: ${await res.text()}`);
-  }
-
-  return res.json();
 }

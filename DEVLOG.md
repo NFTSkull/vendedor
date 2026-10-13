@@ -1,5 +1,23 @@
 # DEVLOG
 
+## 2026-10-13 (seguridad: /api/precalificar y conversations)
+
+- **Alcance en `/api/precalificar`:** se reutiliza la regla de la bandeja (`admin@mejoravit.com` opera leads con `advisor_id` nulo y cada asesor los suyos). Decisión: no basta un JWT válido; se relee el asesor y se exige `activo = true`, para que una baja surta efecto antes de que expire el token de 7 días.
+- **Decisión: el detalle del lead envía `leadId`, no NSS ni teléfono,** para que el cliente no pueda elegir sobre qué datos operar.
+- **Captura manual:** se rechaza si el NSS ya pertenece a un lead fuera del alcance, para no consultar ni sobrescribir clientes de otro asesor. Un lead nuevo de un asesor queda asignado a él; antes quedaba sin asignar y solo lo veía el admin.
+- **Límites y duplicados con `lead_actions`** (sin tabla nueva): 10 solicitudes por asesor en 10 minutos; la última acción del lead debe ser `precalificacion_completada` o tener más de 200 s (el scraper tiene timeout de 180 s).
+  - Riesgo aceptado: dos solicitudes simultáneas de la misma persona pueden pasar ambas la verificación; el botón ya se deshabilita mientras consulta.
+  - Si no se puede registrar en `lead_actions`, la ruta falla cerrada (500).
+- **Logs:** solo `lead_id`, `advisor_id`, tipo o código de error; nunca NSS, teléfono ni respuesta del scraper.
+- **Auditoría de `conversations`:**
+  - Código: solo `lib/conversationMemory.ts`, `lib/reengagementCron.ts` y `lib/reengagementGeneradoresCron.ts`, todos con `getSupabaseAdmin()` (service role). No hay cliente anon ni de navegador.
+  - Base: no hay vistas, funciones, triggers, realtime ni pg_cron que dependan de la tabla.
+  - Logs de la API (24 h): 1,260 accesos a `conversations`, todos con llave `sb_secret_` desde Vercel. `service_role` tiene `rolbypassrls = true`.
+- **Migración `conversations_rls`:** `enable row level security` y `revoke all ... from anon, authenticated`, sin políticas.
+  - Antes: un HEAD anónimo con la llave publicable devolvía las 564 filas en el conteo.
+  - Después: lectura, insert, update y delete anónimos responden 42501/401. El tráfico del cron con service role sigue en 200.
+- **Pendiente:** las demás tablas tienen RLS sin políticas, pero conservan los grants por defecto de Supabase para `anon`/`authenticated` (incluido TRUNCATE, que no pasa por RLS ni se expone por la API REST).
+
 ## 2026-10-13 (Paso 1: asesor inteligente Mejoravit)
 
 - **Fuentes revisadas** (sin modificarlas): `mejoravit-scraper` (respuesta real de `POST /precalificar`) y `crmconcasa` (contrato Datos Generales, validadores, triggers de Mesa, cálculo de cobro).

@@ -340,6 +340,8 @@ export default function CrmLeadDetallePage() {
       setPrecalificacionError("Este lead no tiene NSS capturado.");
       return;
     }
+    const token = getToken();
+    if (!token) return;
 
     setPrecalificando(true);
     setPrecalificacionError("");
@@ -350,13 +352,16 @@ export default function CrmLeadDetallePage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          nss: lead.nss,
-          phoneNumber: lead.whatsapp_phone,
-          source: "crm",
-        }),
+        body: JSON.stringify({ leadId: lead.id }),
       });
+
+      if (res.status === 401) {
+        localStorage.removeItem("crm_token");
+        router.replace("/crm/login");
+        return;
+      }
 
       if (!res.ok) {
         const err = (await res.json().catch(() => ({}))) as { error?: string };

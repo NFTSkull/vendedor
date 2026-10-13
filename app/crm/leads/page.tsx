@@ -615,15 +615,18 @@ export default function CrmLeadsPage() {
       return;
     }
 
+    const token = localStorage.getItem("crm_token");
+    if (!token) {
+      router.replace("/crm/login");
+      return;
+    }
+
     setPrecalificando(true);
     setPrecalifError("");
     setResultado(null);
 
     try {
-      const body: Record<string, string> = {
-        nss,
-        source: "crm",
-      };
+      const body: Record<string, string> = { nss };
       const tel = telefonoInput.replace(/\D/g, "");
       if (tel.length >= 10) {
         body.phoneNumber = tel;
@@ -631,9 +634,18 @@ export default function CrmLeadsPage() {
 
       const res = await fetch("/api/precalificar", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify(body),
       });
+
+      if (res.status === 401) {
+        localStorage.removeItem("crm_token");
+        router.replace("/crm/login");
+        return;
+      }
 
       if (!res.ok) {
         const err = (await res.json().catch(() => ({}))) as { error?: string };

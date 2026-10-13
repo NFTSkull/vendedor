@@ -1,5 +1,23 @@
 # Changelog
 
+## [Sin versión semver] — 2026-10-13 (seguridad: /api/precalificar y conversations)
+
+### Cambio actual
+
+- **`POST /api/precalificar`:**
+  - Exige sesión del CRM (401 sin token o con token inválido).
+  - El asesor debe existir y estar activo (403).
+  - Solo opera leads dentro de su alcance, igual que la bandeja: el admin los leads sin asignar y cada asesor los suyos (403 si no).
+  - `source` ya no existe; cualquier campo extra se rechaza con 400.
+- **Cuerpo de la precalificación:**
+  - Detalle del lead: solo envía `{ leadId }`; el NSS sale de la base.
+  - Captura manual: `{ nss, phoneNumber? }` con NSS de 11 dígitos y teléfono de 10 a 13. Se rechaza un NSS o teléfono de un lead fuera del alcance (403) y un teléfono cuyo lead ya tiene otro NSS (409). Un lead nuevo creado por un asesor queda asignado a él.
+- **Límites:** 10 precalificaciones por asesor cada 10 minutos (429) y una sola consulta en curso por lead (409). Cada solicitud y resultado queda en `lead_actions` (`precalificacion_solicitada` / `precalificacion_completada`).
+- **Respuesta:** solo califica, nombre, NSS consultado, motivo y montos que muestra la pantalla; ya no incluye RFC, empresa ni registro patronal. Los errores del scraper responden 502 genérico.
+- **Ya no envía WhatsApp desde esta ruta.** Solo lo hacía con `source=bot`, que ningún llamador usaba. Se eliminó `lib/precalificarTrigger.ts`, que no se usaba y llamaba a la ruta sin autenticación.
+- **CRM:** la bandeja y el detalle del lead envían su token y regresan al login si la sesión expiró.
+- **Supabase (`supabase/sql/conversations_rls.sql`, aplicado en `lxqvslupzxnkdzbhojad`):** RLS activo en `conversations` y sin permisos para `anon`/`authenticated`. No modifica filas.
+
 ## [Sin versión semver] — 2026-10-13 (Paso 1: asesor inteligente Mejoravit)
 
 ### Cambio actual
