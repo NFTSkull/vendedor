@@ -1,6 +1,12 @@
 import type { NextRequest } from "next/server";
 
 import { procesarYEvolucionar } from "@/lib/botSteps";
+import {
+  aplicarComandoProducto,
+  detectarComandoProducto,
+  esNumeroConComandoProducto,
+  esRemitenteAutorizadoComando,
+} from "@/lib/comandoProducto";
 import { getConversation } from "@/lib/conversationMemory";
 import { detectarPrefijoAsesor, ADVISOR_ID_ADMIN } from "@/lib/detectarProducto";
 import { ensureLeadProvisional } from "@/lib/leadProvisional";
@@ -10,6 +16,7 @@ import {
   guardarMensaje,
   type LeadRow,
 } from "@/lib/messagesDb";
+import { firmaMetaValida } from "@/lib/metaWebhookSignature";
 import { getMetaWebhookVerificationResponse } from "@/lib/metaWebhookVerification";
 import { extraerNssOnceDigitos } from "@/lib/nss";
 import { enviarPushNuevoLead, enviarPushNuevoMensaje } from "@/lib/pushNotifications";
@@ -97,9 +104,21 @@ export async function POST(req: NextRequest): Promise<Response> {
     Boolean(process.env.ANTHROPIC_API_KEY),
   );
 
+  const rawBody = Buffer.from(await req.arrayBuffer());
+  if (
+    !firmaMetaValida(
+      rawBody,
+      req.headers.get("x-hub-signature-256"),
+      process.env.META_APP_SECRET,
+    )
+  ) {
+    console.error("[webhook] Firma de Meta inválida o ausente; solicitud rechazada");
+    return new Response("Unauthorized", { status: 401 });
+  }
+
   let payload: unknown;
   try {
-    payload = await req.json();
+    payload = JSON.parse(rawBody.toString("utf8"));
   } catch {
     return new Response("Bad Request", { status: 400 });
   }
@@ -418,10 +437,17 @@ export async function POST(req: NextRequest): Promise<Response> {
       }
     }
 
-    const reply = await procesarYEvolucionar({
-      phone: m.from,
-      textoUsuario: textoProcesar,
-    });
+    const comandoProducto =
+      esNumeroConComandoProducto(m.phoneNumberId) &&
+      esRemitenteAutorizadoComando(m.from)
+        ? detectarComandoProducto(textoProcesar)
+        : null;
+    const reply = comandoProducto
+      ? await aplicarComandoProducto(m.from, comandoProducto)
+      : await procesarYEvolucionar({
+          phone: m.from,
+          textoUsuario: textoProcesar,
+        });
 
     if (!reply) {
       await flushHistorialPendiente();

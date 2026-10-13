@@ -1,5 +1,15 @@
 # Changelog
 
+## [Sin versión semver] — 2026-10-13
+
+### Cambio actual
+
+- **Comando de producto de prueba (número 8114118767):** "activa / modo / cambia a mejoravit" y "activa / modo / cambia a casas" (o "compra de casa") cambian la conversación entre Mejoravit y Compra de Casa sin redeploy. Solo para los teléfonos de `COMANDO_PRODUCTO_TEST_PHONES`; sin esa variable el comando está deshabilitado. Solo aplica si el `phone_number_id` recibido de Meta es el de ese número y el texto completo es el comando.
+- **Reset limpio:** el comando reemplaza `state`, `nss`, `producto` y `data` de la conversación en un solo upsert, conserva `lead_id`, limpia el historial de Claude y responde una confirmación corta. El siguiente mensaje entra al primer paso del flujo elegido.
+- **Reiniciar conserva el producto:** "reiniciar" en Mejoravit conserva el producto guardado y el `lead_id` (antes volvía a detectar el producto por número y en 8114118767 pasaba a Compra de Casa). Limpia estado, NSS y datos del flujo; no duplica leads.
+- **Webhook firmado:** `POST /api/webhook` valida `X-Hub-Signature-256` con `META_APP_SECRET`; solicitudes sin firma válida reciben 401.
+- **Sin cambios** para otros números, clientes no autorizados, mensajes normales, `leads.producto`, system prompts ni intervención de asesores (si un asesor ya intervino, el comando no responde).
+
 ## [Sin versión semver] — 2026-06-10
 
 ### Cambio actual

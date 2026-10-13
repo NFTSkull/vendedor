@@ -15,6 +15,16 @@ export const ENERGRUM_PHONE_NUMBER_ID = "ENERGRUM_PENDING";
 // Para revertir a Mejoravit: borra la constante y el bloque if asociado.
 export const COMPRA_CASA_PHONE_NUMBER_ID = "1177472778778882";
 
+export type ProductoForzado = Extract<ProductoLead, "mejoravit" | "compra_casa">;
+
+/** Producto fijado por comando en `conversations.data.productoForzado`; tiene prioridad sobre el routing por número. */
+export function productoForzadoDe(
+  data: Record<string, unknown> | undefined,
+): ProductoForzado | null {
+  const valor = data?.productoForzado;
+  return valor === "mejoravit" || valor === "compra_casa" ? valor : null;
+}
+
 function normalizarTexto(texto: string): string {
   return texto
     .toLowerCase()

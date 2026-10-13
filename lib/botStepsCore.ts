@@ -1,8 +1,10 @@
 import {
   deleteConversation,
   getConversation,
+  reemplazarConversacion,
   setConversation,
 } from "@/lib/conversationMemory";
+import { productoForzadoDe } from "@/lib/detectarProducto";
 import {
   actualizarLeadPorConversacion,
   ensureLeadProvisional,
@@ -474,6 +476,22 @@ async function guardarLead(
 
 export async function reiniciarFlujoCore(phone: string): Promise<ResultadoPaso> {
   datosPrecalificacionPorTelefono.delete(phone);
+  const conv = await getConversation(phone);
+  if (conv.producto) {
+    const leadId =
+      conv.lead_id ??
+      (await buscarLeadPorTelefono(phone))?.id ??
+      (await ensureLeadProvisional(phone));
+    const productoForzado = productoForzadoDe(conv.data);
+    await reemplazarConversacion(phone, {
+      state: "esperando_labor_vigente",
+      nss: null,
+      lead_id: leadId,
+      producto: conv.producto,
+      data: productoForzado ? { productoForzado } : {},
+    });
+    return exacto(MSG_BIENVENIDA);
+  }
   await deleteConversation(phone);
   await setConversation(phone, {
     state: "esperando_labor_vigente",

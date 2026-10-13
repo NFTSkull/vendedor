@@ -110,6 +110,39 @@ export async function setConversation(
   }
 }
 
+export type ConversationReemplazo = {
+  state: BotRuntimeState;
+  nss: string | null;
+  lead_id: string | null;
+  producto: string;
+  data: Record<string, unknown>;
+};
+
+/** Reemplaza state, nss, lead_id, producto y data en un solo upsert: no borra la fila ni mezcla `data` previa. */
+export async function reemplazarConversacion(
+  phone: string,
+  valor: ConversationReemplazo,
+): Promise<void> {
+  conversationMemory.set(phone, { ...valor, name: null });
+  try {
+    const supabase = getSupabaseAdmin();
+    const { error } = await supabase.from("conversations").upsert({
+      whatsapp_phone: phone,
+      state: valor.state,
+      nss: valor.nss,
+      lead_id: valor.lead_id,
+      producto: valor.producto,
+      data: valor.data,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) {
+      console.error("[conversationMemory] Error reemplazando conversación:", error);
+    }
+  } catch (err) {
+    console.error("[conversationMemory] Error reemplazando conversación:", err);
+  }
+}
+
 export async function deleteConversation(phone: string): Promise<void> {
   conversationMemory.delete(phone);
   try {

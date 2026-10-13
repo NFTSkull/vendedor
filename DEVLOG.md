@@ -1,5 +1,17 @@
 # DEVLOG
 
+## 2026-10-13 (comando de producto Mejoravit ↔ Compra de Casa)
+
+- `lib/comandoProducto.ts`: `detectarComandoProducto` (mensaje completo normalizado, sin acentos ni signos), `esNumeroConComandoProducto` (`COMPRA_CASA_PHONE_NUMBER_ID`), `esRemitenteAutorizadoComando` (`COMANDO_PRODUCTO_TEST_PHONES`) y `aplicarComandoProducto`.
+- Decisión: el comando solo lo usan los teléfonos de `COMANDO_PRODUCTO_TEST_PHONES` (coma, formato internacional; `521XXXXXXXXXX` ≡ `52XXXXXXXXXX`). Variable vacía o ausente = comando deshabilitado, para que ningún cliente real cambie de producto.
+- `app/api/webhook/route.ts`: el comando se evalúa justo antes de `procesarYEvolucionar`, solo con el `phone_number_id` del payload de Meta (sin fallback al de entorno). Envío, historial en `messages` y flip a `contactado` siguen el camino normal. La verificación de intervención del asesor corre antes, así que el comando la respeta.
+- `lib/metaWebhookSignature.ts` + webhook: `POST` lee el cuerpo crudo y valida `X-Hub-Signature-256` (HMAC-SHA256 con `META_APP_SECRET`, comparación en tiempo constante) antes de parsear; si falta o no coincide → 401. `GET` (verify token) sin cambios.
+- `lib/botStepsCore.ts`: `reiniciarFlujoCore` con producto guardado en la conversación lo conserva en un solo `reemplazarConversacion` (estado `esperando_labor_vigente`, NSS y `data` limpios salvo `productoForzado`). `lead_id`: el de la conversación, si no el lead existente por teléfono, y solo si no hay ninguno `ensureLeadProvisional` (sin duplicados). Antes, `deleteConversation` + `ensureLeadProvisional` re-detectaba el producto por número y en 8114118767 mandaba a Compra de Casa toda conversación Mejoravit reiniciada.
+- `lib/conversationMemory.ts`: `reemplazarConversacion` — un solo upsert que reemplaza `state`, `nss`, `lead_id`, `producto` y `data`. Decisión: no usar `deleteConversation` + `setConversation` para no pasar por un estado sin fila ni heredar llaves viejas de `data` (`setConversation` hace merge).
+- `lib/detectarProducto.ts`: `productoForzadoDe(data)` valida `data.productoForzado` (`mejoravit` | `compra_casa`).
+- `lib/leadProvisional.ts`: con `productoForzado` y sin `lead_id`, liga o crea el lead sin sobrescribir `conversations.producto`. `leads.producto` del lead nuevo sigue tomando el producto del número (decisión: el comando no toca `leads`).
+- Historial de Claude: `limpiarHistorialClaude` vacía el historial de esa conversación en la instancia que procesa el comando. Hoy ningún paso de Mejoravit lo lee (`ResultadoPaso` siempre `exacto`, así que `naturalizarMensajeBot` no se invoca) y Compra de Casa no lo lee. El `Map` es por instancia serverless: si en el futuro se activa la naturalización, conviene persistir el reset en la conversación.
+
 ## 2026-06-10 (asignación leads G-/B-)
 
 - `supabase/sql/leads_advisor_id.sql`: `leads.advisor_id` → `advisors(id)` (ejecutar en Supabase SQL Editor).

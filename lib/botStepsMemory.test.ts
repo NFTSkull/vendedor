@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { procesarYEvolucionar } from "@/lib/botSteps";
+import { aplicarComandoProducto } from "@/lib/comandoProducto";
 import { conversationMemory } from "@/lib/conversationMemory";
+import { COMPRA_CASA_PHONE_NUMBER_ID } from "@/lib/detectarProducto";
+import { ensureLeadProvisional } from "@/lib/leadProvisional";
 
 const conversationsStore = new Map<
   string,
@@ -9,6 +12,7 @@ const conversationsStore = new Map<
     state: string;
     nss: string | null;
     lead_id: string | null;
+    producto?: string;
     data?: Record<string, unknown>;
   }
 >();
@@ -104,6 +108,7 @@ vi.mock("@/lib/supabaseAdmin", () => ({
                         state: stored.state,
                         nss: stored.nss,
                         lead_id: stored.lead_id,
+                        producto: stored.producto ?? null,
                         data: stored.data ?? null,
                       }
                     : null,
@@ -117,6 +122,7 @@ vi.mock("@/lib/supabaseAdmin", () => ({
             state: string;
             nss: string | null;
             lead_id?: string | null;
+            producto?: string;
             data?: Record<string, unknown>;
           }) => {
             const prev = conversationsStore.get(row.whatsapp_phone);
@@ -125,6 +131,7 @@ vi.mock("@/lib/supabaseAdmin", () => ({
               nss: row.nss,
               lead_id:
                 row.lead_id !== undefined ? row.lead_id : (prev?.lead_id ?? null),
+              producto: row.producto !== undefined ? row.producto : prev?.producto,
               data:
                 row.data !== undefined
                   ? row.data
@@ -184,6 +191,7 @@ describe("botSteps memoria Map", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     conversationMemory.clear();
     conversationsStore.clear();
     leadsById.clear();
@@ -562,5 +570,204 @@ describe("botSteps memoria Map", () => {
     const reply = await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
 
     expect(reply).toContain("no aplica si ya tienes un crédito Infonavit activo");
+  });
+
+  describe("comando de producto en el número 8114118767", () => {
+    beforeEach(() => {
+      vi.stubEnv("WHATSAPP_PHONE_NUMBER_ID", COMPRA_CASA_PHONE_NUMBER_ID);
+      vi.spyOn(console, "log").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    /** Mismo orden que el webhook: liga/crea el lead y luego pasa el texto al bot. */
+    async function mensajeEntrante(p: string, texto: string) {
+      await ensureLeadProvisional(p, {
+        phoneNumberId: COMPRA_CASA_PHONE_NUMBER_ID,
+        primerMensaje: texto,
+      });
+      return procesarYEvolucionar({ phone: p, textoUsuario: texto });
+    }
+
+    it("casas → Mejoravit: el siguiente mensaje entra al flujo Mejoravit desde el inicio", async () => {
+      const p = "5216000000001";
+      expect(await mensajeEntrante(p, "Hola")).toBe("¿En qué municipio se encuentra?");
+      await mensajeEntrante(p, "Apodaca");
+      expect(conversationsStore.get(p)?.data?.casaStep).toBe("colonia");
+
+      const confirmacion = await aplicarComandoProducto(p, "mejoravit");
+
+      expect(confirmacion).toBe(
+        "Listo, a partir de ahora estamos para ayudarte con tu crédito Mejoravit.",
+      );
+      expect(conversationsStore.get(p)).toEqual({
+        state: "inicio",
+        nss: null,
+        lead_id: "lead-1",
+        producto: "mejoravit",
+        data: { productoForzado: "mejoravit" },
+      });
+
+      const bienvenida = await mensajeEntrante(p, "Hola");
+      expect(bienvenida).toContain("relación laboral vigente en Nuevo León");
+      const infonavit = await mensajeEntrante(p, "Sí");
+      expect(infonavit).toContain("dado de alta en Infonavit");
+      expect(conversationsStore.get(p)?.producto).toBe("mejoravit");
+    });
+
+    it("Mejoravit finalizado → casas: arranca en la primera pregunta de casas", async () => {
+      const p = "5216000000002";
+      await mensajeEntrante(p, "Hola");
+      await aplicarComandoProducto(p, "mejoravit");
+      await mensajeEntrante(p, "Hola");
+      const rechazo = await mensajeEntrante(p, "no");
+      expect(rechazo).toContain("trabajadores activos en Nuevo León");
+      expect(conversationsStore.get(p)?.state).toBe("finalizado");
+
+      const confirmacion = await aplicarComandoProducto(p, "compra_casa");
+
+      expect(confirmacion).toBe(
+        "Listo, a partir de ahora estamos para ayudarte con la venta de tu propiedad.",
+      );
+      expect(await mensajeEntrante(p, "Hola")).toBe("¿En qué municipio se encuentra?");
+      expect(conversationsStore.get(p)?.producto).toBe("compra_casa");
+    });
+
+    it("reiniciar después del comando conserva Mejoravit y el lead_id en una sola escritura", async () => {
+      const p = "5216000000003";
+      await mensajeEntrante(p, "Hola");
+      await aplicarComandoProducto(p, "mejoravit");
+      await mensajeEntrante(p, "Hola");
+      await mensajeEntrante(p, "Sí");
+
+      const reinicio = await mensajeEntrante(p, "reiniciar");
+
+      expect(reinicio).toContain("relación laboral vigente en Nuevo León");
+      expect(conversationsStore.get(p)).toEqual({
+        state: "esperando_labor_vigente",
+        nss: null,
+        lead_id: "lead-1",
+        producto: "mejoravit",
+        data: { productoForzado: "mejoravit" },
+      });
+      expect(leadsInsertRows).toHaveLength(1);
+      expect(await mensajeEntrante(p, "Sí")).toContain("dado de alta en Infonavit");
+    });
+
+    it("comando sin lead_id y sin lead previo: el siguiente mensaje crea el lead sin deshacer el producto", async () => {
+      const p = "5216000000004";
+
+      await aplicarComandoProducto(p, "mejoravit");
+      expect(conversationsStore.get(p)?.lead_id).toBeNull();
+
+      const bienvenida = await mensajeEntrante(p, "Hola");
+
+      expect(bienvenida).toContain("relación laboral vigente en Nuevo León");
+      expect(conversationsStore.get(p)).toMatchObject({
+        lead_id: "lead-1",
+        producto: "mejoravit",
+      });
+      expect(leadsInsertRows[0]).toMatchObject({ producto: "compra_casa" });
+    });
+
+    it("comando sin lead_id con lead previo: lo liga sin deshacer el producto", async () => {
+      const p = "5216000000005";
+      leadsById.set("lead-previo", { id: "lead-previo", whatsapp_phone: p, estado: "nuevo" });
+      leadsByPhone.set(p, "lead-previo");
+
+      await aplicarComandoProducto(p, "mejoravit");
+      await mensajeEntrante(p, "Hola");
+      const infonavit = await mensajeEntrante(p, "Sí");
+
+      expect(infonavit).toContain("dado de alta en Infonavit");
+      expect(conversationsStore.get(p)).toMatchObject({
+        lead_id: "lead-previo",
+        producto: "mejoravit",
+      });
+      expect(leadsInsertRows).toHaveLength(0);
+    });
+
+    it("sin comando, un lead nuevo en el número sigue entrando a casas", async () => {
+      const p = "5216000000006";
+
+      expect(await mensajeEntrante(p, "Hola")).toBe("¿En qué municipio se encuentra?");
+
+      expect(conversationsStore.get(p)?.producto).toBe("compra_casa");
+      expect(conversationsStore.get(p)?.data?.productoForzado).toBeUndefined();
+    });
+
+    it("reiniciar una conversación Mejoravit antigua (sin comando) conserva Mejoravit, el lead y limpia el flujo", async () => {
+      const p = "5216000000007";
+      leadsById.set("lead-legacy", { id: "lead-legacy", whatsapp_phone: p, estado: "nuevo" });
+      leadsByPhone.set(p, "lead-legacy");
+      conversationsStore.set(p, {
+        state: "esperando_horario",
+        nss: "12345678901",
+        lead_id: "lead-legacy",
+        producto: "mejoravit",
+        data: { nss: "12345678901", horario: "mañana" },
+      });
+
+      const reinicio = await procesarYEvolucionar({ phone: p, textoUsuario: "reiniciar" });
+
+      expect(reinicio).toContain("relación laboral vigente en Nuevo León");
+      expect(conversationsStore.get(p)).toEqual({
+        state: "esperando_labor_vigente",
+        nss: null,
+        lead_id: "lead-legacy",
+        producto: "mejoravit",
+        data: {},
+      });
+      expect(leadsInsertRows).toHaveLength(0);
+      expect(await mensajeEntrante(p, "Sí")).toContain("dado de alta en Infonavit");
+      expect(conversationsStore.get(p)?.producto).toBe("mejoravit");
+    });
+
+    it("reiniciar una conversación Mejoravit antigua sin lead_id liga el lead existente sin duplicarlo", async () => {
+      const p = "5216000000008";
+      leadsById.set("lead-sin-ligar", { id: "lead-sin-ligar", whatsapp_phone: p, estado: "nuevo" });
+      leadsByPhone.set(p, "lead-sin-ligar");
+      conversationsStore.set(p, {
+        state: "esperando_credito_activo",
+        nss: null,
+        lead_id: null,
+        producto: "mejoravit",
+        data: {},
+      });
+
+      await procesarYEvolucionar({ phone: p, textoUsuario: "reiniciar" });
+
+      expect(conversationsStore.get(p)).toEqual({
+        state: "esperando_labor_vigente",
+        nss: null,
+        lead_id: "lead-sin-ligar",
+        producto: "mejoravit",
+        data: {},
+      });
+      expect(leadsInsertRows).toHaveLength(0);
+    });
+
+    it("reiniciar una conversación Mejoravit sin ningún lead crea uno solo y conserva Mejoravit", async () => {
+      const p = "5216000000009";
+      conversationsStore.set(p, {
+        state: "esperando_infonavit",
+        nss: null,
+        lead_id: null,
+        producto: "mejoravit",
+        data: {},
+      });
+
+      await procesarYEvolucionar({ phone: p, textoUsuario: "reiniciar" });
+      await mensajeEntrante(p, "Sí");
+
+      expect(leadsInsertRows).toHaveLength(1);
+      expect(conversationsStore.get(p)).toMatchObject({
+        lead_id: "lead-1",
+        producto: "mejoravit",
+        state: "esperando_infonavit",
+      });
+    });
   });
 });

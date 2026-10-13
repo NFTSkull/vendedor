@@ -1,5 +1,5 @@
 import { getConversation, setConversation } from "@/lib/conversationMemory";
-import { detectarProducto } from "@/lib/detectarProducto";
+import { detectarProducto, productoForzadoDe } from "@/lib/detectarProducto";
 import { buscarLeadPorTelefono } from "@/lib/messagesDb";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -22,12 +22,15 @@ export async function ensureLeadProvisional(
 
   if (conv.lead_id) return conv.lead_id;
 
+  const productoForzado = productoForzadoDe(conv.data);
+
   const existing = await buscarLeadPorTelefono(phone);
   if (existing) {
     if (options?.advisorId && !existing.advisor_id) {
       await asignarAdvisorSiVacio(existing.id, options.advisorId);
     }
-    const productoDetectado = detectarProducto({ phoneNumberId, primerMensaje });
+    const productoDetectado =
+      productoForzado ?? detectarProducto({ phoneNumberId, primerMensaje });
     await setConversation(phone, {
       state: conv.state,
       lead_id: existing.id,
@@ -76,7 +79,7 @@ export async function ensureLeadProvisional(
     await setConversation(phone, {
       state: conv.state,
       lead_id: data.id,
-      producto,
+      producto: productoForzado ?? producto,
     });
     console.log("[leadProvisional] Lead provisional creado:", {
       phone,
