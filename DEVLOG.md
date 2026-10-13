@@ -1,5 +1,18 @@
 # DEVLOG
 
+## 2026-10-13 (costos: cron de recordatorios)
+
+- **Medición previa (solo conteos, `lxqvslupzxnkdzbhojad`):**
+  - 8 leads en `nuevo`, todos de Generadores; 0 leads de Mejoravit.
+  - Cada minuto el cron hacía 5 consultas: leads para Mejoravit, leads y conversaciones de Generadores, y 2 consultas de mensajes de leads que ya tenían ambos toques.
+  - Con el código nuevo y los datos actuales son 3 consultas cada 5 minutos.
+- **Ventanas:** de 10 minutos para un cron de 5. Cubren una ejecución retrasada u omitida; pasado el límite, el toque se pierde en lugar de llegar fuera de contexto. La separación mínima de 10 minutos evita que un toque 1 tardío y el toque 2 lleguen juntos.
+- **Reserva:** se reutilizan las columnas `*_sent_at`, que nunca se reinician, así que no hizo falta migración. Dos ejecuciones simultáneas o un reintento de Vercel no obtienen la misma reserva. La liberación exige que la marca coincida, para no borrar la de otra ejecución.
+- **Política de fallos:** se prefiere perder un recordatorio a duplicarlo. Solo un 4xx de Meta confirma que el mensaje no salió.
+- **Generadores:** solo cambió cómo se consulta. La regla de elegibilidad es la misma función (`conversacionElegibleGeneradores`, `resolverToquePendienteGeneradores`).
+- **Hallazgo sin cambiar:** desde `ce79dc2` (2026-06-25) el webhook marca el lead como `contactado` después de cada respuesta exitosa del bot. Los dos flujos exigen `estado = 'nuevo'`, así que en la práctica casi no hay candidatos: el último recordatorio de Generadores fue el 2026-06-26 y nunca se ha enviado uno de Mejoravit. Se mantuvo la regla para no empezar a escribir a clientes activos sin decisión comercial.
+- **Pruebas:** `lib/testing/supabaseEnMemoria.ts` aplica filtros y UPDATE condicionados en memoria; con él se prueban la concurrencia, los reintentos y la respuesta del cliente durante el proceso sin red ni mensajes reales.
+
 ## 2026-10-13 (seguridad: expedientes del CRM y permisos Supabase)
 
 - **`lib/crmAcceso.ts`:**

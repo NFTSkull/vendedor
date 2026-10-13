@@ -1,15 +1,25 @@
 import type { BotRuntimeState } from "@/lib/conversationMemory";
-import { guardarMensaje } from "@/lib/messagesDb";
 import {
   construirMensajeReengagement,
-  estadoPermiteReengagement,
+  ESTADOS_REENGAGEMENT_MEJORAVIT,
+  leadActualizadoRecientemente,
   minutosDesde,
   resolverToquePendiente,
+  TOQUE_2_HASTA_MINUTOS,
   type ReengagementTouch,
 } from "@/lib/reengagement";
+import {
+  enviarToqueConReserva,
+  nuevasMetricas,
+  resumirFlujo,
+  ultimosEntrantesPorLead,
+  type MetricasCron,
+  type ResumenFlujo,
+} from "@/lib/reengagementEnvio";
 import { ejecutarReengagementGeneradoresCron } from "@/lib/reengagementGeneradoresCron";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { enviarMensajeTextoWa } from "@/lib/whatsappCloud";
+
+const PRODUCTOS_LEAD_MEJORAVIT = ["mejoravit", "sin_clasificar"];
 
 type LeadCron = {
   id: string;
@@ -30,165 +40,80 @@ type ResultadoLead = {
   error?: string;
 };
 
-async function obtenerUltimoMensajeEntrante(
-  leadId: string,
-): Promise<string | null> {
-  const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from("messages")
-    .select("created_at")
-    .eq("lead_id", leadId)
-    .eq("direccion", "entrante")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`Error consultando mensajes: ${error.message}`);
-  }
-
-  return typeof data?.created_at === "string" ? data.created_at : null;
-}
-
-async function obtenerEstadoConversacion(
-  whatsappPhone: string,
-): Promise<string | null> {
-  const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from("conversations")
-    .select("state")
-    .eq("whatsapp_phone", whatsappPhone)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`Error consultando conversación: ${error.message}`);
-  }
-
-  return typeof data?.state === "string" ? data.state : null;
-}
-
-async function marcarToqueEnviado(
-  leadId: string,
-  touch: ReengagementTouch,
-): Promise<void> {
-  const supabase = getSupabaseAdmin();
-  const campo =
-    touch === 1 ? "reengagement_1_sent_at" : "reengagement_2_sent_at";
-  const { error } = await supabase
-    .from("leads")
-    .update({ [campo]: new Date().toISOString() })
-    .eq("id", leadId);
-
-  if (error) {
-    throw new Error(`Error actualizando ${campo}: ${error.message}`);
-  }
-}
-
-async function procesarLead(lead: LeadCron, nowMs: number): Promise<ResultadoLead> {
-  const base: ResultadoLead = {
-    lead_id: lead.id,
-    estado: "omitido",
-  };
+async function procesarLead(args: {
+  lead: LeadCron;
+  convState: BotRuntimeState;
+  ultimoEntranteAt: string | undefined;
+  nowMs: number;
+  metricas: MetricasCron;
+}): Promise<ResultadoLead> {
+  const { lead } = args;
+  const base: ResultadoLead = { lead_id: lead.id, estado: "omitido" };
 
   try {
-    if (lead.producto === "generadores") {
-      return { ...base, motivo: "producto_generadores" };
+    if (!args.ultimoEntranteAt) {
+      return { ...base, motivo: "sin_mensaje_entrante_reciente" };
     }
 
-    const ultimoEntranteAt = await obtenerUltimoMensajeEntrante(lead.id);
-    if (!ultimoEntranteAt) {
-      return { ...base, motivo: "sin_mensaje_entrante" };
-    }
-
-    const minutesSince = minutosDesde(ultimoEntranteAt, nowMs);
     const touch = resolverToquePendiente({
-      minutesSinceLastIncoming: minutesSince,
+      minutesSinceLastIncoming: minutosDesde(args.ultimoEntranteAt, args.nowMs),
       reengagement1SentAt: lead.reengagement_1_sent_at,
       reengagement2SentAt: lead.reengagement_2_sent_at,
       leadUpdatedAt: lead.updated_at,
-      nowMs,
+      nowMs: args.nowMs,
     });
-
     if (!touch) {
       return { ...base, motivo: "fuera_de_ventana_o_ya_enviado" };
     }
 
-    const convState = await obtenerEstadoConversacion(lead.whatsapp_phone);
-    if (!convState || !estadoPermiteReengagement(convState)) {
-      return { ...base, motivo: "estado_conversacion_no_aplica" };
-    }
-
-    const mensaje = construirMensajeReengagement(
-      touch,
-      convState as BotRuntimeState,
-      lead,
-    );
+    const mensaje = construirMensajeReengagement(touch, args.convState, lead);
     if (!mensaje) {
       return { ...base, motivo: "sin_mensaje_para_estado" };
     }
 
-    const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-    const graphVersion =
-      process.env.WHATSAPP_GRAPH_API_VERSION ?? process.env.GRAPH_API_VERSION;
-
-    if (!accessToken || !phoneNumberId) {
-      throw new Error("Faltan credenciales de WhatsApp en el entorno");
-    }
-
-    const envio = await enviarMensajeTextoWa({
-      phoneNumberId,
-      accessToken,
-      graphVersion,
-      to: lead.whatsapp_phone,
-      body: mensaje,
-    });
-
-    if (!envio.ok) {
-      throw new Error(`WhatsApp error ${envio.status}`);
-    }
-
-    const guardado = await guardarMensaje({
+    const envio = await enviarToqueConReserva({
       leadId: lead.id,
-      direccion: "saliente",
-      contenido: mensaje,
-      origen: "bot",
+      whatsappPhone: lead.whatsapp_phone,
+      campo: touch === 1 ? "reengagement_1_sent_at" : "reengagement_2_sent_at",
+      requiereCampo: touch === 2 ? "reengagement_1_sent_at" : undefined,
+      mensaje,
+      ultimoEntranteAt: args.ultimoEntranteAt,
+      nowMs: args.nowMs,
+      metricas: args.metricas,
     });
-    if (!guardado) {
-      throw new Error("Mensaje enviado pero no se guardó en historial");
+    if (envio.estado === "error") {
+      return { ...base, estado: "error", touch, motivo: envio.motivo, error: envio.error };
     }
-
-    await marcarToqueEnviado(lead.id, touch);
-
-    return {
-      lead_id: lead.id,
-      estado: "enviado",
-      touch,
-    };
+    if (envio.estado === "omitido") {
+      return { ...base, touch, motivo: envio.motivo };
+    }
+    return { lead_id: lead.id, estado: "enviado", touch };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return {
-      lead_id: lead.id,
-      estado: "error",
-      error: msg,
-    };
+    return { lead_id: lead.id, estado: "error", motivo: "excepcion", error: msg };
   }
 }
 
-export async function ejecutarReengagementMejoravitCron(nowMs = Date.now()): Promise<{
-  procesados: number;
-  enviados: number;
-  omitidos: number;
-  errores: number;
-  resultados: ResultadoLead[];
-}> {
+/**
+ * Solo evalúa leads `nuevo` de Mejoravit con algún toque pendiente y conversación
+ * Mejoravit en un estado que admite recordatorio. Consultas: 1 si no hay candidatos;
+ * hasta 3 de selección más 3 por envío (reserva, verificación e historial).
+ */
+export async function ejecutarReengagementMejoravitCron(
+  nowMs = Date.now(),
+): Promise<ResumenFlujo<ResultadoLead>> {
+  const metricas = nuevasMetricas();
   const supabase = getSupabaseAdmin();
+
+  metricas.consultas += 1;
   const { data: leads, error } = await supabase
     .from("leads")
     .select(
       "id, whatsapp_phone, updated_at, producto, monto_aprobado_min, monto_aprobado_max, reengagement_1_sent_at, reengagement_2_sent_at",
     )
-    .eq("estado", "nuevo");
+    .eq("estado", "nuevo")
+    .in("producto", PRODUCTOS_LEAD_MEJORAVIT)
+    .is("reengagement_2_sent_at", null);
 
   if (error) {
     throw new Error(`Error consultando leads: ${error.message}`);
@@ -196,45 +121,108 @@ export async function ejecutarReengagementMejoravitCron(nowMs = Date.now()): Pro
 
   const candidatos = (leads ?? []) as LeadCron[];
   const resultados: ResultadoLead[] = [];
-
+  const porEvaluar: LeadCron[] = [];
   for (const lead of candidatos) {
-    resultados.push(await procesarLead(lead, nowMs));
+    if (leadActualizadoRecientemente(lead.updated_at, nowMs)) {
+      resultados.push({ lead_id: lead.id, estado: "omitido", motivo: "lead_actualizado_recientemente" });
+    } else {
+      porEvaluar.push(lead);
+    }
+  }
+  if (porEvaluar.length === 0) {
+    return resumirFlujo(candidatos.length, resultados, metricas);
   }
 
-  return {
-    procesados: resultados.length,
-    enviados: resultados.filter((r) => r.estado === "enviado").length,
-    omitidos: resultados.filter((r) => r.estado === "omitido").length,
-    errores: resultados.filter((r) => r.estado === "error").length,
-    resultados,
-  };
+  metricas.consultas += 1;
+  const { data: convs, error: convsError } = await supabase
+    .from("conversations")
+    .select("whatsapp_phone, state")
+    .in(
+      "whatsapp_phone",
+      porEvaluar.map((l) => l.whatsapp_phone),
+    )
+    .eq("producto", "mejoravit")
+    .in("state", [...ESTADOS_REENGAGEMENT_MEJORAVIT]);
+
+  if (convsError) {
+    throw new Error(`Error consultando conversaciones: ${convsError.message}`);
+  }
+
+  const estadoPorPhone = new Map<string, BotRuntimeState>();
+  for (const row of (convs ?? []) as { whatsapp_phone: string; state: BotRuntimeState }[]) {
+    estadoPorPhone.set(row.whatsapp_phone, row.state);
+  }
+
+  const conConversacion = porEvaluar.filter((lead) => {
+    if (estadoPorPhone.has(lead.whatsapp_phone)) return true;
+    resultados.push({ lead_id: lead.id, estado: "omitido", motivo: "estado_conversacion_no_aplica" });
+    return false;
+  });
+  if (conConversacion.length === 0) {
+    return resumirFlujo(candidatos.length, resultados, metricas);
+  }
+
+  const ultimos = await ultimosEntrantesPorLead(
+    conConversacion.map((l) => l.id),
+    new Date(nowMs - TOQUE_2_HASTA_MINUTOS * 60_000).toISOString(),
+    metricas,
+  );
+
+  for (const lead of conConversacion) {
+    resultados.push(
+      await procesarLead({
+        lead,
+        convState: estadoPorPhone.get(lead.whatsapp_phone)!,
+        ultimoEntranteAt: ultimos.get(lead.id),
+        nowMs,
+        metricas,
+      }),
+    );
+  }
+
+  return resumirFlujo(candidatos.length, resultados, metricas);
 }
 
-export async function ejecutarReengagementCron(nowMs = Date.now()): Promise<{
-  procesados: number;
-  enviados: number;
-  omitidos: number;
-  errores: number;
-  resultados: ResultadoLead[];
-  mejoravit: {
-    procesados: number;
-    enviados: number;
-    omitidos: number;
-    errores: number;
-    resultados: ResultadoLead[];
-  };
-  generadores: Awaited<ReturnType<typeof ejecutarReengagementGeneradoresCron>>;
-}> {
+export async function ejecutarReengagementCron(nowMs = Date.now()) {
+  const inicio = Date.now();
   const mejoravit = await ejecutarReengagementMejoravitCron(nowMs);
   const generadores = await ejecutarReengagementGeneradoresCron(nowMs);
 
   return {
-    procesados: mejoravit.procesados + generadores.procesados,
+    duracion_ms: Date.now() - inicio,
+    candidatos: mejoravit.candidatos + generadores.candidatos,
     enviados: mejoravit.enviados + generadores.enviados,
     omitidos: mejoravit.omitidos + generadores.omitidos,
     errores: mejoravit.errores + generadores.errores,
-    resultados: [...mejoravit.resultados, ...generadores.resultados],
+    consultas: mejoravit.consultas + generadores.consultas,
     mejoravit,
     generadores,
+  };
+}
+
+type ResumenCron = Awaited<ReturnType<typeof ejecutarReengagementCron>>;
+
+function metricasFlujo(flujo: ResumenFlujo<{ estado: ResultadoLead["estado"] }>) {
+  return {
+    candidatos: flujo.candidatos,
+    enviados: flujo.enviados,
+    omitidos: flujo.omitidos,
+    errores: flujo.errores,
+    consultas: flujo.consultas,
+    motivos: flujo.motivos,
+  };
+}
+
+/** Solo conteos: sin IDs de lead, teléfonos ni contenido de mensajes. */
+export function metricasCronSinDatosPersonales(resumen: ResumenCron) {
+  return {
+    duracion_ms: resumen.duracion_ms,
+    candidatos: resumen.candidatos,
+    enviados: resumen.enviados,
+    omitidos: resumen.omitidos,
+    errores: resumen.errores,
+    consultas: resumen.consultas,
+    mejoravit: metricasFlujo(resumen.mejoravit),
+    generadores: metricasFlujo(resumen.generadores),
   };
 }

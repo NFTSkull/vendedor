@@ -9,8 +9,6 @@ const mocks = vi.hoisted(() => ({
   actualizarLeadPorConversacion: vi.fn(),
   claudeDisponible: vi.fn(),
   interpretarRespuestaGenerador: vi.fn(),
-  conversationUpdates: [] as unknown[],
-  leadUpdates: [] as unknown[],
 }));
 
 vi.mock("@/lib/whatsappCloud", () => ({
@@ -40,6 +38,7 @@ vi.mock("@/lib/claudeAssistant", () => ({
 }));
 
 import { procesarYEvolucionarGeneradores } from "@/lib/botStepsGeneradores";
+import { crearSupabaseEnMemoria } from "@/lib/testing/supabaseEnMemoria";
 import {
   construirMensajeReengagementGeneradores,
   GEN_TOQUE_1_MIN_MINUTES,
@@ -68,84 +67,26 @@ type ConvRow = {
 };
 
 function configurarSupabase(args: {
-  leads: unknown[];
+  leads: Record<string, unknown>[];
   convs: ConvRow[];
   ultimoEntranteAt: string | null;
 }) {
-  mocks.conversationUpdates = [];
-  mocks.leadUpdates = [];
-
-  mocks.mockFrom.mockImplementation((table: string) => {
-    if (table === "leads") {
-      return {
-        select: () => ({
-          eq: (col: string, val: unknown) => {
-            if (col === "estado" && val === "nuevo") {
-              return {
-                eq: () =>
-                  Promise.resolve({
-                    data: args.leads.filter(
-                      (l) =>
-                        (l as { estado?: string }).estado === "nuevo",
-                    ),
-                    error: null,
-                  }),
-              };
-            }
-            return { eq: () => Promise.resolve({ data: [], error: null }) };
+  const db = crearSupabaseEnMemoria({
+    leads: args.leads,
+    conversations: args.convs,
+    messages: args.ultimoEntranteAt
+      ? [
+          {
+            id: "m-1",
+            lead_id: LEAD_ID,
+            direccion: "entrante",
+            created_at: args.ultimoEntranteAt,
           },
-        }),
-        update: (patch: unknown) => {
-          mocks.leadUpdates.push(patch);
-          return {
-            eq: () => Promise.resolve({ error: null }),
-          };
-        },
-      };
-    }
-
-    if (table === "conversations") {
-      return {
-        select: () => ({
-          in: () => ({
-            eq: () => ({
-              neq: () => Promise.resolve({ data: args.convs, error: null }),
-            }),
-          }),
-        }),
-        update: (patch: unknown) => {
-          mocks.conversationUpdates.push(patch);
-          return {
-            eq: () => Promise.resolve({ error: null }),
-          };
-        },
-      };
-    }
-
-    if (table === "messages") {
-      return {
-        select: () => ({
-          eq: () => ({
-            eq: () => ({
-              order: () => ({
-                limit: () => ({
-                  maybeSingle: () =>
-                    Promise.resolve({
-                      data: args.ultimoEntranteAt
-                        ? { created_at: args.ultimoEntranteAt }
-                        : null,
-                      error: null,
-                    }),
-                }),
-              }),
-            }),
-          }),
-        }),
-      };
-    }
-
-    return {};
+        ]
+      : [],
   });
+  mocks.mockFrom.mockImplementation((table: string) => db.from(table));
+  return db;
 }
 
 describe("escenario completo: recordatorio en equipos → usuario responde", () => {
@@ -153,8 +94,6 @@ describe("escenario completo: recordatorio en equipos → usuario responde", () 
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.conversationUpdates = [];
-    mocks.leadUpdates = [];
     process.env.WHATSAPP_ACCESS_TOKEN = "token-test";
     process.env.WHATSAPP_PHONE_NUMBER_ID = "1177472778778882";
     mocks.mockEnviarWa.mockResolvedValue({ ok: true, status: 200, data: {} });
@@ -178,7 +117,7 @@ describe("escenario completo: recordatorio en equipos → usuario responde", () 
   });
 
   it("recordatorio no altera genStep; respuesta válida avanza equipos→horario; fuera de tema no rompe", async () => {
-    configurarSupabase({
+    const db = configurarSupabase({
       leads: [
         {
           id: LEAD_ID,
@@ -212,14 +151,14 @@ describe("escenario completo: recordatorio en equipos → usuario responde", () 
       contenido: construirMensajeReengagementGeneradores("equipos"),
       origen: "bot",
     });
-    expect(mocks.leadUpdates).toEqual([
-      { gen_reengagement_1_sent_at: expect.any(String) },
+    expect(db.updates).toEqual([
+      { tabla: "leads", patch: { gen_reengagement_1_sent_at: expect.any(String) } },
     ]);
 
     expect(convsEnDb[0].data.genStep).toBe("equipos");
     expect(convsEnDb[0].data.gen_tipo).toBe("uso industrial");
     expect(convsEnDb[0].data.gen_equipos).toBeUndefined();
-    expect(mocks.conversationUpdates).toHaveLength(0);
+    expect(db.updates.some((u) => u.tabla === "conversations")).toBe(false);
 
     mocks.getConversation.mockResolvedValue({
       state: "inicio",

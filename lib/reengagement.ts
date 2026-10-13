@@ -6,21 +6,34 @@ export const MSG_CONTACTO_HORARIO =
   "¿Te podemos contactar ahorita mismo para darte todos los detalles? " +
   "Si no, ¿en qué horario te viene mejor? 📞";
 
-const ESTADOS_REENGAGEMENT = new Set<BotRuntimeState>([
+export const ESTADOS_REENGAGEMENT_MEJORAVIT: readonly BotRuntimeState[] = [
   "esperando_labor_vigente",
   "esperando_infonavit",
   "esperando_credito_activo",
   "esperando_datos",
-]);
+];
+
+const ESTADOS_REENGAGEMENT = new Set<BotRuntimeState>(
+  ESTADOS_REENGAGEMENT_MEJORAVIT,
+);
 
 export type LeadReengagement = {
   monto_aprobado_min?: number | string | null;
   monto_aprobado_max?: number | string | null;
 };
 
-export function autorizadoCron(req: Request): boolean {
-  if (req.headers.get("x-vercel-cron") === "1") return true;
+/**
+ * El cron corre cada 5 minutos. Cada ventana mide 10 minutos: cubre una ejecución
+ * retrasada u omitida sin mandar recordatorios fuera de contexto.
+ */
+export const TOQUE_1_DESDE_MINUTOS = 5;
+export const TOQUE_1_HASTA_MINUTOS = 15;
+export const TOQUE_2_DESDE_MINUTOS = 20;
+export const TOQUE_2_HASTA_MINUTOS = 30;
+/** Evita que un toque 1 retrasado y el toque 2 lleguen casi juntos. */
+export const SEPARACION_MINIMA_TOQUES_MINUTOS = 10;
 
+export function autorizadoCron(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret) return false;
 
@@ -86,15 +99,21 @@ export function elegibleParaToque(args: {
   if (args.touch === 1) {
     if (args.reengagement1SentAt) return false;
     return (
-      args.minutesSinceLastIncoming >= 5 &&
-      args.minutesSinceLastIncoming < 6
+      args.minutesSinceLastIncoming >= TOQUE_1_DESDE_MINUTOS &&
+      args.minutesSinceLastIncoming < TOQUE_1_HASTA_MINUTOS
     );
   }
 
   if (!args.reengagement1SentAt || args.reengagement2SentAt) return false;
+  if (
+    minutosDesde(args.reengagement1SentAt, nowMs) <
+    SEPARACION_MINIMA_TOQUES_MINUTOS
+  ) {
+    return false;
+  }
   return (
-    args.minutesSinceLastIncoming >= 20 &&
-    args.minutesSinceLastIncoming < 21
+    args.minutesSinceLastIncoming >= TOQUE_2_DESDE_MINUTOS &&
+    args.minutesSinceLastIncoming < TOQUE_2_HASTA_MINUTOS
   );
 }
 

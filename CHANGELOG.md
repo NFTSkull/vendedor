@@ -1,5 +1,26 @@
 # Changelog
 
+## [Sin versión semver] — 2026-10-13 (costos: cron de recordatorios)
+
+### Cambio actual
+
+- **Frecuencia:** `vercel.json` pasa de `* * * * *` (1,440 ejecuciones al día) a `*/5 * * * *` (288).
+- **Ventanas de Mejoravit adaptadas al cron de 5 minutos (`lib/reengagement.ts`):**
+  - Toque 1: de 5 a menos de 15 minutos sin respuesta (antes de 5 a 6).
+  - Toque 2: de 20 a menos de 30 minutos (antes de 20 a 21), con el toque 1 enviado al menos 10 minutos antes.
+  - Después de esos límites no se manda nada, para no enviar recordatorios antiguos.
+- **Generadores:** mismas reglas comerciales (toque 1 entre 180 y 190 min, toque 2 entre 1,200 y 1,210 min, ventana de 24 h, `genStep`).
+- **Consultas:**
+  - Mejoravit solo lee leads `nuevo` de producto Mejoravit (o `sin_clasificar`) con algún toque pendiente, y solo conversaciones `producto = mejoravit` en estados con recordatorio. Antes leía todos los leads `nuevo` y hacía 1–2 consultas por lead.
+  - Generadores excluye en SQL a los leads con ambos toques enviados.
+  - En los dos flujos, el último mensaje entrante de todos los candidatos sale en una sola consulta acotada por tiempo.
+- **Sin duplicados (`lib/reengagementEnvio.ts`):**
+  - Antes de enviar, cada toque se reserva con un UPDATE condicionado (`*_sent_at IS NULL` y `estado = 'nuevo'`). Solo una ejecución lo obtiene.
+  - Después se comprueba que el cliente no haya escrito; si escribió, se libera la reserva y no se envía.
+  - Rechazo 4xx de WhatsApp: se libera la reserva para reintentar dentro de la ventana. 5xx, fallo de red o historial no guardado: la reserva se conserva y no se reenvía.
+- **Seguridad del cron:** se elimina la autorización solo con `x-vercel-cron: 1`; ahora exige `Authorization: Bearer CRON_SECRET`, el mecanismo oficial de Vercel.
+- **Métricas:** la ruta responde y registra solo conteos (duración, candidatos, enviados, omitidos, errores, consultas y motivos). Ya no devuelve IDs de lead.
+
 ## [Sin versión semver] — 2026-10-13 (seguridad: expedientes del CRM y permisos Supabase)
 
 ### Cambio actual

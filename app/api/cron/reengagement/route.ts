@@ -1,5 +1,8 @@
 import { autorizadoCron } from "@/lib/reengagement";
-import { ejecutarReengagementCron } from "@/lib/reengagementCron";
+import {
+  ejecutarReengagementCron,
+  metricasCronSinDatosPersonales,
+} from "@/lib/reengagementCron";
 
 export const maxDuration = 60;
 
@@ -9,10 +12,14 @@ export async function GET(req: Request) {
   }
 
   try {
-    const resumen = await ejecutarReengagementCron();
-    return Response.json({ ok: true, ...resumen });
+    const metricas = metricasCronSinDatosPersonales(
+      await ejecutarReengagementCron(),
+    );
+    console.info("[cron reengagement]", JSON.stringify(metricas));
+    return Response.json({ ok: true, ...metricas });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Error desconocido";
+    console.error("[cron reengagement] Error:", msg);
     return Response.json({ ok: false, error: msg }, { status: 500 });
   }
 }

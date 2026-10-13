@@ -13,7 +13,7 @@ import {
 const NOW = new Date("2026-06-05T12:10:00.000Z").getTime();
 
 describe("reengagement", () => {
-  it("autoriza cron de Vercel o Bearer CRON_SECRET", () => {
+  it("solo autoriza Bearer CRON_SECRET; x-vercel-cron no basta", () => {
     process.env.CRON_SECRET = "cron-test-secret";
 
     expect(
@@ -22,7 +22,15 @@ describe("reengagement", () => {
           headers: { "x-vercel-cron": "1" },
         }),
       ),
-    ).toBe(true);
+    ).toBe(false);
+
+    expect(
+      autorizadoCron(
+        new Request("http://localhost", {
+          headers: { Authorization: "Bearer otro-secreto" },
+        }),
+      ),
+    ).toBe(false);
 
     expect(
       autorizadoCron(
@@ -35,6 +43,13 @@ describe("reengagement", () => {
     expect(autorizadoCron(new Request("http://localhost"))).toBe(false);
 
     delete process.env.CRON_SECRET;
+    expect(
+      autorizadoCron(
+        new Request("http://localhost", {
+          headers: { Authorization: "Bearer " },
+        }),
+      ),
+    ).toBe(false);
   });
 
   it("formatea montos con comas", () => {
@@ -50,31 +65,42 @@ describe("reengagement", () => {
     ).toBe(false);
   });
 
-  it("toque 1 solo entre 5 y 6 minutos sin toque previo", () => {
-    expect(
+  it("toque 1 entre 5 y 15 minutos sin toque previo", () => {
+    const toque1 = (minutos: number, enviado: string | null = null) =>
       elegibleParaToque({
         touch: 1,
-        minutesSinceLastIncoming: 5,
-        reengagement1SentAt: null,
+        minutesSinceLastIncoming: minutos,
+        reengagement1SentAt: enviado,
         reengagement2SentAt: null,
         leadUpdatedAt: "2026-06-05T12:00:00.000Z",
         nowMs: NOW,
-      }),
-    ).toBe(true);
+      });
 
-    expect(
-      elegibleParaToque({
-        touch: 1,
-        minutesSinceLastIncoming: 6,
-        reengagement1SentAt: null,
-        reengagement2SentAt: null,
-        leadUpdatedAt: "2026-06-05T12:00:00.000Z",
-        nowMs: NOW,
-      }),
-    ).toBe(false);
+    expect(toque1(4)).toBe(false);
+    expect(toque1(5)).toBe(true);
+    expect(toque1(14)).toBe(true);
+    expect(toque1(15)).toBe(false);
+    expect(toque1(6, "2026-06-05T12:04:00.000Z")).toBe(false);
   });
 
-  it("toque 2 solo entre 20 y 21 minutos con toque 1 enviado", () => {
+  it("toque 2 entre 20 y 30 minutos, al menos 10 minutos después del toque 1", () => {
+    const toque2 = (minutos: number, toque1At: string | null) =>
+      elegibleParaToque({
+        touch: 2,
+        minutesSinceLastIncoming: minutos,
+        reengagement1SentAt: toque1At,
+        reengagement2SentAt: null,
+        leadUpdatedAt: "2026-06-05T12:00:00.000Z",
+        nowMs: NOW,
+      });
+
+    expect(toque2(19, "2026-06-05T11:55:00.000Z")).toBe(false);
+    expect(toque2(29, "2026-06-05T11:55:00.000Z")).toBe(true);
+    expect(toque2(30, "2026-06-05T11:55:00.000Z")).toBe(false);
+    expect(toque2(22, "2026-06-05T12:01:00.000Z")).toBe(false);
+  });
+
+  it("toque 2 solo con toque 1 enviado", () => {
     expect(
       elegibleParaToque({
         touch: 2,
