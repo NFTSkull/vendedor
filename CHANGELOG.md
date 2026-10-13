@@ -1,5 +1,22 @@
 # Changelog
 
+## [Sin versión semver] — 2026-10-13 (recordatorios para leads contactados por el bot)
+
+### Cambio actual
+
+- **Estados:** Mejoravit y Generadores aceptan leads `nuevo` y `contactado`. La reserva atómica también acepta los dos estados; si el lead pasa a `no_interesado` antes de reservar, no se envía.
+- **Solo actividad nueva:** únicamente cuenta el último mensaje del cliente posterior a `2026-10-13T22:50:00Z` (`RECORDATORIOS_ACTIVIDAD_DESDE_ISO`). No hay backfill ni se reactivan conversaciones históricas.
+- **Toque 2:** exige que el toque 1 se haya enviado después del último mensaje del cliente. Un toque 1 antiguo ya no habilita el toque 2.
+- **No se envía si:**
+  - un asesor intervino (`mensaje_asesor`/`archivo_asesor`, la misma definición del webhook) o registró cualquier acción en el CRM, como un cambio manual de estado;
+  - después del último mensaje del cliente hay mensajes que no son del bot, el cliente volvió a escribir o el bot aún no respondió;
+  - el último mensaje del cliente es un rechazo, opt-out o pausa ("luego te escribo", "lo pienso"), según los detectores existentes del bot;
+  - el producto del lead y el de la conversación no coinciden, la conversación es de otro lead o no existe;
+  - en Mejoravit, la conversación está en `tramite_mejoravit`, `esperando_horario` o `finalizado`, o ya se recibió el NSS (para no volver a pedirlo).
+- **Producto:** Mejoravit exige `producto = mejoravit` en el lead y en la conversación (`sin_clasificar` ya no recibe recordatorios). No se modifica ningún `producto`.
+- **Consultas:** cada flujo empieza por los mensajes entrantes recientes (30 min en Mejoravit, 20 h 10 min en Generadores). Solo los leads cuyo silencio cae en una ventana de toque llevan a leer leads, conversaciones, mensajes posteriores y acciones de asesor. Sin actividad: 2 consultas por ejecución (antes 3).
+- **Tiempos sin cambio:** Mejoravit de 5 a 15 min y de 20 a 30 min; Generadores 3 h y 20 h, con la ventana de 24 h de WhatsApp.
+
 ## [Sin versión semver] — 2026-10-13 (costos: cron de recordatorios)
 
 ### Cambio actual

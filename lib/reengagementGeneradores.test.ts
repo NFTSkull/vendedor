@@ -45,10 +45,10 @@ describe("reengagementGeneradores", () => {
       ).toBe(false);
     });
 
-    it("rechaza si lead contactado (mismo criterio que webhook silencioso)", () => {
+    it("acepta lead contactado por el bot y rechaza no_interesado", () => {
       expect(
         conversacionElegibleGeneradores({ ...base, leadEstado: "contactado" }),
-      ).toBe(false);
+      ).toBe(true);
       expect(
         conversacionElegibleGeneradores({
           ...base,

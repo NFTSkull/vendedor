@@ -1,5 +1,21 @@
 # DEVLOG
 
+## 2026-10-13 (recordatorios para leads contactados por el bot)
+
+- **Por qué:** desde `ce79dc2` el webhook marca `contactado` tras cada respuesta del bot y vuelve a `nuevo` cuando el cliente escribe. Exigir `nuevo` dejaba fuera justo a quien tiene una pregunta del bot sin responder.
+- **"Contactado por el bot":**
+  - Después del último mensaje del cliente solo hay mensajes `origen = bot`.
+  - No existe ninguna acción de asesor en `lead_actions`. Se usa `ACCIONES_INTERVENCION_ASESOR` (`lib/intervencionAsesor.ts`, la misma lista del webhook) o `advisor_id` no nulo, porque los cambios manuales de estado del CRM se registran así.
+  - `leads.advisor_id` no sirve como señal: 544 de 564 leads lo tienen por asignación automática.
+- **Corte de activación:** una constante en código, en lugar de una variable de entorno, para que no dependa de configuración externa. Antes del corte el cron no consulta la base.
+- **Simulación previa (solo conteos, sin envíos, 22:37 UTC):**
+  - 544 leads `contactado` con historial; 528 tienen atención humana registrada.
+  - Con conversación esperando al cliente y atendida solo por el bot: 0 de Mejoravit y 12 de Generadores (7 sin toque 1).
+  - Elegibles en ese momento, aun sin el corte: 0 y 0. Con el corte: 0 hasta que haya actividad nueva.
+- **Pausa y rechazo:** se reutilizan `esOptOut` (Mejoravit), `REGEX_PAUSA` del trámite (ahora expuesta como `esPausaExplicita`) y `detectarInteresEnTexto` (Generadores). El contenido del mensaje solo se evalúa en memoria y no se registra.
+- **Consultas:** partir de los mensajes recientes evita leer cientos de leads `contactado` históricos en cada ejecución. Sin índice en `messages.created_at`, la tabla (~6 mil filas) se recorre en menos de un milisegundo. Si crece, conviene un índice parcial por `created_at` para `direccion = 'entrante'`.
+- **Sin cambios:** mensajes comerciales, ventanas, `tramite_mejoravit` (su seguimiento se diseñará aparte) y `leads.producto`.
+
 ## 2026-10-13 (costos: cron de recordatorios)
 
 - **Medición previa (solo conteos, `lxqvslupzxnkdzbhojad`):**

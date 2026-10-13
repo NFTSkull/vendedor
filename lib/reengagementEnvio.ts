@@ -1,3 +1,4 @@
+import { ACCIONES_INTERVENCION_ASESOR } from "@/lib/intervencionAsesor";
 import { guardarMensaje } from "@/lib/messagesDb";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { enviarMensajeTextoWa } from "@/lib/whatsappCloud";
@@ -7,6 +8,18 @@ export type CampoToque =
   | "reengagement_2_sent_at"
   | "gen_reengagement_1_sent_at"
   | "gen_reengagement_2_sent_at";
+
+/** `contactado` lo pone el webhook tras cada respuesta del bot; `nuevo`, al recibir un mensaje. */
+export const ESTADOS_LEAD_REENGAGEMENT = ["nuevo", "contactado"] as const;
+
+/**
+ * Solo cuenta actividad del cliente posterior a la activación de recordatorios para
+ * leads `contactado`: evita reactivar conversaciones históricas.
+ */
+export const RECORDATORIOS_ACTIVIDAD_DESDE_ISO = "2026-10-13T22:50:00.000Z";
+
+/** Mayor que el máximo histórico de mensajes entrantes en un día (419). */
+const LIMITE_ENTRANTES_RECIENTES = 1000;
 
 export type MetricasCron = { consultas: number };
 
@@ -49,9 +62,152 @@ export function resumirFlujo<R extends ResultadoBase>(
   };
 }
 
+export type EntranteReciente = { at: string; contenido: string };
+
+/**
+ * Último mensaje entrante de cada lead con actividad reciente, en una sola consulta.
+ * Los leads sin actividad desde `max(activación, ahora - ventana)` no se leen.
+ */
+export async function ultimosEntrantesRecientes(args: {
+  nowMs: number;
+  ventanaMinutos: number;
+  metricas: MetricasCron;
+}): Promise<Map<string, EntranteReciente>> {
+  const desdeMs = Math.max(
+    Date.parse(RECORDATORIOS_ACTIVIDAD_DESDE_ISO),
+    args.nowMs - args.ventanaMinutos * 60_000,
+  );
+  const ultimos = new Map<string, EntranteReciente>();
+  if (desdeMs >= args.nowMs) return ultimos;
+
+  args.metricas.consultas += 1;
+  const { data, error } = await getSupabaseAdmin()
+    .from("messages")
+    .select("lead_id, contenido, created_at")
+    .eq("direccion", "entrante")
+    .gte("created_at", new Date(desdeMs).toISOString())
+    .order("created_at", { ascending: false })
+    .limit(LIMITE_ENTRANTES_RECIENTES);
+
+  if (error) {
+    throw new Error(`Error consultando mensajes recientes: ${error.message}`);
+  }
+
+  const filas = (data ?? []) as { lead_id: unknown; contenido: unknown; created_at: unknown }[];
+  if (filas.length >= LIMITE_ENTRANTES_RECIENTES) {
+    console.warn("[cron reengagement] Actividad reciente truncada al límite de consulta");
+  }
+  for (const fila of filas) {
+    if (
+      typeof fila.lead_id === "string" &&
+      typeof fila.created_at === "string" &&
+      !ultimos.has(fila.lead_id)
+    ) {
+      ultimos.set(fila.lead_id, {
+        at: fila.created_at,
+        contenido: typeof fila.contenido === "string" ? fila.contenido : "",
+      });
+    }
+  }
+  return ultimos;
+}
+
+type MensajePosterior = { direccion: string; origen: string | null; created_at: string };
+
+/** Mensajes de cada lead posteriores a `desdeIso`, del más reciente al más antiguo. */
+export async function mensajesPosteriores(
+  leadIds: string[],
+  desdeIso: string,
+  metricas: MetricasCron,
+): Promise<Map<string, MensajePosterior[]>> {
+  const porLead = new Map<string, MensajePosterior[]>();
+  if (leadIds.length === 0) return porLead;
+
+  metricas.consultas += 1;
+  const { data, error } = await getSupabaseAdmin()
+    .from("messages")
+    .select("lead_id, direccion, origen, created_at")
+    .in("lead_id", leadIds)
+    .gt("created_at", desdeIso)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new Error(`Error consultando mensajes posteriores: ${error.message}`);
+  }
+
+  for (const fila of (data ?? []) as (MensajePosterior & { lead_id: string })[]) {
+    const lista = porLead.get(fila.lead_id) ?? [];
+    lista.push({ direccion: fila.direccion, origen: fila.origen, created_at: fila.created_at });
+    porLead.set(fila.lead_id, lista);
+  }
+  return porLead;
+}
+
+export type EsperaRespuestaCliente =
+  | { ok: true; ultimoMensajeAt: string }
+  | {
+      ok: false;
+      motivo: "cliente_respondio" | "atencion_humana" | "pendiente_respuesta_bot";
+    };
+
+/**
+ * El cliente tiene una pregunta del bot sin responder: después de su último mensaje
+ * solo hay mensajes del bot. Si no hay respuesta del bot, el mensaje sigue pendiente.
+ */
+export function esperaRespuestaDelCliente(
+  entranteAt: string,
+  mensajesDelLead: MensajePosterior[],
+): EsperaRespuestaCliente {
+  const entranteMs = Date.parse(entranteAt);
+  const posteriores = mensajesDelLead.filter((m) => Date.parse(m.created_at) > entranteMs);
+  if (posteriores.some((m) => m.direccion === "entrante")) {
+    return { ok: false, motivo: "cliente_respondio" };
+  }
+  if (posteriores.some((m) => m.origen !== "bot")) {
+    return { ok: false, motivo: "atencion_humana" };
+  }
+  if (posteriores.length === 0) {
+    return { ok: false, motivo: "pendiente_respuesta_bot" };
+  }
+  return { ok: true, ultimoMensajeAt: posteriores[0].created_at };
+}
+
+/**
+ * Leads atendidos por una persona: la intervención que detiene al bot en el webhook
+ * (`ACCIONES_INTERVENCION_ASESOR`) o cualquier acción registrada por un asesor, como
+ * un cambio manual de estado en el CRM.
+ */
+export async function leadsConAtencionHumana(
+  leadIds: string[],
+  metricas: MetricasCron,
+): Promise<Set<string>> {
+  const atendidos = new Set<string>();
+  if (leadIds.length === 0) return atendidos;
+
+  metricas.consultas += 1;
+  const { data, error } = await getSupabaseAdmin()
+    .from("lead_actions")
+    .select("lead_id")
+    .in("lead_id", leadIds)
+    .or(`accion.in.(${ACCIONES_INTERVENCION_ASESOR.join(",")}),advisor_id.not.is.null`);
+
+  if (error) {
+    throw new Error(`Error consultando acciones de asesor: ${error.message}`);
+  }
+  for (const fila of (data ?? []) as { lead_id: unknown }[]) {
+    if (typeof fila.lead_id === "string") atendidos.add(fila.lead_id);
+  }
+  return atendidos;
+}
+
+/** El toque 1 solo habilita el toque 2 si se envió en este mismo silencio del cliente. */
+export function toque1EnEsteSilencio(toque1At: string | null, entranteAt: string): boolean {
+  return toque1At != null && Date.parse(toque1At) > Date.parse(entranteAt);
+}
+
 export type MotivoOmisionEnvio =
   | "reservado_por_otra_ejecucion"
-  | "cliente_respondio";
+  | "conversacion_cambio_antes_de_enviar";
 
 export type MotivoErrorEnvio =
   | "whatsapp_rechazado"
@@ -63,43 +219,9 @@ export type ResultadoEnvioToque =
   | { estado: "omitido"; motivo: MotivoOmisionEnvio }
   | { estado: "error"; motivo: MotivoErrorEnvio; error: string };
 
-/** Último mensaje entrante de cada lead posterior a `desdeIso`, en una sola consulta. */
-export async function ultimosEntrantesPorLead(
-  leadIds: string[],
-  desdeIso: string,
-  metricas: MetricasCron,
-): Promise<Map<string, string>> {
-  const ultimos = new Map<string, string>();
-  if (leadIds.length === 0) return ultimos;
-
-  metricas.consultas += 1;
-  const { data, error } = await getSupabaseAdmin()
-    .from("messages")
-    .select("lead_id, created_at")
-    .in("lead_id", leadIds)
-    .eq("direccion", "entrante")
-    .gte("created_at", desdeIso)
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    throw new Error(`Error consultando mensajes: ${error.message}`);
-  }
-
-  for (const fila of (data ?? []) as { lead_id: unknown; created_at: unknown }[]) {
-    if (
-      typeof fila.lead_id === "string" &&
-      typeof fila.created_at === "string" &&
-      !ultimos.has(fila.lead_id)
-    ) {
-      ultimos.set(fila.lead_id, fila.created_at);
-    }
-  }
-  return ultimos;
-}
-
 /**
- * Reserva atómica: solo una ejecución logra pasar el campo de NULL a una marca.
- * La marca es la misma columna `*_sent_at` que antes se escribía después de enviar.
+ * Reserva atómica: solo una ejecución logra pasar el campo de NULL a una marca, y solo
+ * mientras el lead siga en un estado de atención automática.
  */
 async function reservarToque(args: {
   leadId: string;
@@ -113,7 +235,7 @@ async function reservarToque(args: {
     .from("leads")
     .update({ [args.campo]: args.marca })
     .eq("id", args.leadId)
-    .eq("estado", "nuevo")
+    .in("estado", [...ESTADOS_LEAD_REENGAGEMENT])
     .is(args.campo, null);
   if (args.requiereCampo) {
     query = query.not(args.requiereCampo, "is", null);
@@ -145,9 +267,10 @@ async function liberarToque(args: {
   }
 }
 
-async function clienteEscribioDespues(
+/** Cualquier mensaje nuevo (del cliente, de un asesor o de otro proceso) cancela el envío. */
+async function huboMensajesDespues(
   leadId: string,
-  ultimoEntranteAt: string,
+  ultimoMensajeAt: string,
   metricas: MetricasCron,
 ): Promise<boolean> {
   metricas.consultas += 1;
@@ -155,12 +278,11 @@ async function clienteEscribioDespues(
     .from("messages")
     .select("id")
     .eq("lead_id", leadId)
-    .eq("direccion", "entrante")
-    .gt("created_at", ultimoEntranteAt)
+    .gt("created_at", ultimoMensajeAt)
     .limit(1);
 
   if (error) {
-    throw new Error(`Error verificando respuesta del cliente: ${error.message}`);
+    throw new Error(`Error verificando la conversación: ${error.message}`);
   }
   return Array.isArray(data) && data.length > 0;
 }
@@ -184,7 +306,7 @@ function credencialesWhatsApp(): {
 }
 
 /**
- * Reserva → verifica que el cliente no haya escrito → envía → guarda historial.
+ * Reserva → verifica que la conversación no cambió → envía → guarda historial.
  *
  * Política ante fallos (a lo más un envío por toque):
  * - Meta responde 4xx: el mensaje no salió; se libera la reserva y la siguiente
@@ -198,7 +320,7 @@ export async function enviarToqueConReserva(args: {
   campo: CampoToque;
   requiereCampo?: CampoToque;
   mensaje: string;
-  ultimoEntranteAt: string;
+  ultimoMensajeAt: string;
   nowMs: number;
   metricas: MetricasCron;
 }): Promise<ResultadoEnvioToque> {
@@ -225,15 +347,9 @@ export async function enviarToqueConReserva(args: {
     });
 
   try {
-    if (
-      await clienteEscribioDespues(
-        args.leadId,
-        args.ultimoEntranteAt,
-        args.metricas,
-      )
-    ) {
+    if (await huboMensajesDespues(args.leadId, args.ultimoMensajeAt, args.metricas)) {
       await liberar();
-      return { estado: "omitido", motivo: "cliente_respondio" };
+      return { estado: "omitido", motivo: "conversacion_cambio_antes_de_enviar" };
     }
   } catch (err) {
     await liberar();

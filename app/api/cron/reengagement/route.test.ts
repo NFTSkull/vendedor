@@ -24,6 +24,9 @@ vi.mock("@/lib/supabaseAdmin", () => ({
 }));
 
 import { GET } from "@/app/api/cron/reengagement/route";
+import { RECORDATORIOS_ACTIVIDAD_DESDE_ISO } from "@/lib/reengagementEnvio";
+
+const DESPUES_DE_ACTIVAR = Date.parse(RECORDATORIOS_ACTIVIDAD_DESDE_ISO) + 24 * 60 * 60_000;
 
 const LEAD_ID = "22222222-2222-4222-8222-222222222222";
 const PHONE = "5218110000002";
@@ -35,6 +38,8 @@ function solicitud(headers?: Record<string, string>) {
 describe("GET /api/cron/reengagement", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(DESPUES_DE_ACTIVAR);
     process.env.CRON_SECRET = "cron-test-secret";
     process.env.WHATSAPP_ACCESS_TOKEN = "token-test";
     process.env.WHATSAPP_PHONE_NUMBER_ID = "phone-id-test";
@@ -48,6 +53,15 @@ describe("GET /api/cron/reengagement", () => {
     delete process.env.WHATSAPP_ACCESS_TOKEN;
     delete process.env.WHATSAPP_PHONE_NUMBER_ID;
     vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("antes de la activación no consulta la base", async () => {
+    vi.setSystemTime(Date.parse(RECORDATORIOS_ACTIVIDAD_DESDE_ISO) - 60_000);
+    const res = await GET(solicitud({ Authorization: "Bearer cron-test-secret" }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, consultas: 0 });
+    expect(mocks.db!.operaciones).toHaveLength(0);
   });
 
   it("rechaza sin autorización y no consulta la base", async () => {
@@ -104,9 +118,20 @@ describe("GET /api/cron/reengagement", () => {
           id: "m-1",
           lead_id: LEAD_ID,
           direccion: "entrante",
+          origen: "cliente",
+          contenido: "Sí",
           created_at: new Date(now - 7 * 60_000).toISOString(),
         },
+        {
+          id: "m-2",
+          lead_id: LEAD_ID,
+          direccion: "saliente",
+          origen: "bot",
+          contenido: "¿Me compartes tu NSS?",
+          created_at: new Date(now - 7 * 60_000 + 10_000).toISOString(),
+        },
       ],
+      lead_actions: [],
     });
 
     const res = await GET(solicitud({ Authorization: "Bearer cron-test-secret" }));

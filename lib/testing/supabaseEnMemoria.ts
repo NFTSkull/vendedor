@@ -52,6 +52,7 @@ function filtroOr(expr: string): Filtro {
     const [col, op, ...resto] = parte.split(".");
     const valor = resto.join(".");
     if (op === "is" && valor === "null") return (f) => f[col] == null;
+    if (op === "not" && valor === "is.null") return (f) => f[col] != null;
     if (op === "eq") return (f) => iguales(f[col], valor);
     if (op === "in") {
       const lista = valor.replace(/^\(|\)$/g, "").split(",");

@@ -1,8 +1,14 @@
 import {
   enviarToqueConReserva,
+  esperaRespuestaDelCliente,
+  ESTADOS_LEAD_REENGAGEMENT,
+  leadsConAtencionHumana,
+  mensajesPosteriores,
   nuevasMetricas,
   resumirFlujo,
-  ultimosEntrantesPorLead,
+  toque1EnEsteSilencio,
+  ultimosEntrantesRecientes,
+  type EntranteReciente,
   type MetricasCron,
   type ResumenFlujo,
 } from "@/lib/reengagementEnvio";
@@ -10,13 +16,17 @@ import {
   construirMensajeReengagementGeneradores,
   conversacionElegibleGeneradores,
   dentroVentana24hWhatsApp,
-  GEN_WHATSAPP_VENTANA_MAX_MINUTES,
+  GEN_TOQUE_1_MIN_MINUTES,
+  GEN_TOQUE_1_WINDOW_MINUTES,
+  GEN_TOQUE_2_MIN_MINUTES,
+  GEN_TOQUE_2_WINDOW_MINUTES,
   minutosDesdeUltimoEntrante,
   parseGenStep,
   resolverToquePendienteGeneradores,
   type GenReengagementTouch,
   type GenStep,
 } from "@/lib/reengagementGeneradores";
+import { clientePausoORechazo } from "@/lib/reengagementPausa";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 type LeadGeneradoresCron = {
@@ -30,6 +40,7 @@ type LeadGeneradoresCron = {
 
 type ConversacionGeneradores = {
   whatsapp_phone: string;
+  lead_id: string | null;
   state: string;
   producto: string | null;
   data: unknown;
@@ -44,25 +55,34 @@ export type ResultadoLeadGeneradores = {
   error?: string;
 };
 
+const GEN_TOQUE_2_HASTA_MINUTOS = GEN_TOQUE_2_MIN_MINUTES + GEN_TOQUE_2_WINDOW_MINUTES;
+
+function enVentanaDeToque(minutos: number): boolean {
+  return (
+    (minutos >= GEN_TOQUE_1_MIN_MINUTES &&
+      minutos < GEN_TOQUE_1_MIN_MINUTES + GEN_TOQUE_1_WINDOW_MINUTES) ||
+    (minutos >= GEN_TOQUE_2_MIN_MINUTES && minutos < GEN_TOQUE_2_HASTA_MINUTOS)
+  );
+}
+
+function omitido(leadId: string, motivo: string): ResultadoLeadGeneradores {
+  return { lead_id: leadId, estado: "omitido", motivo };
+}
+
 // Producción: WHATSAPP_PHONE_NUMBER_ID = 1177472778778882 (Concasa / generadores).
-async function procesarLeadGeneradores(args: {
+async function enviarToqueGeneradores(args: {
   lead: LeadGeneradoresCron;
   genStep: GenStep;
-  ultimoEntranteAt: string | undefined;
+  entrante: EntranteReciente;
+  ultimoMensajeAt: string;
   nowMs: number;
   metricas: MetricasCron;
 }): Promise<ResultadoLeadGeneradores> {
   const { lead, genStep } = args;
-  const base: ResultadoLeadGeneradores = { lead_id: lead.id, estado: "omitido" };
-
   try {
-    if (!args.ultimoEntranteAt) {
-      return { ...base, motivo: "fuera_ventana_24h_whatsapp" };
-    }
-
-    const minutesSince = minutosDesdeUltimoEntrante(args.ultimoEntranteAt, args.nowMs);
+    const minutesSince = minutosDesdeUltimoEntrante(args.entrante.at, args.nowMs);
     if (!dentroVentana24hWhatsApp(minutesSince)) {
-      return { ...base, motivo: "fuera_ventana_24h_whatsapp" };
+      return omitido(lead.id, "fuera_ventana_24h_whatsapp");
     }
 
     const touch = resolverToquePendienteGeneradores({
@@ -70,8 +90,9 @@ async function procesarLeadGeneradores(args: {
       genReengagement1SentAt: lead.gen_reengagement_1_sent_at,
       genReengagement2SentAt: lead.gen_reengagement_2_sent_at,
     });
-    if (!touch) {
-      return { ...base, motivo: "fuera_de_ventana_o_ya_enviado" };
+    if (!touch) return omitido(lead.id, "fuera_de_ventana_o_ya_enviado");
+    if (touch === 2 && !toque1EnEsteSilencio(lead.gen_reengagement_1_sent_at, args.entrante.at)) {
+      return omitido(lead.id, "toque_1_de_otra_conversacion");
     }
 
     const envio = await enviarToqueConReserva({
@@ -80,15 +101,15 @@ async function procesarLeadGeneradores(args: {
       campo: touch === 1 ? "gen_reengagement_1_sent_at" : "gen_reengagement_2_sent_at",
       requiereCampo: touch === 2 ? "gen_reengagement_1_sent_at" : undefined,
       mensaje: construirMensajeReengagementGeneradores(genStep),
-      ultimoEntranteAt: args.ultimoEntranteAt,
+      ultimoMensajeAt: args.ultimoMensajeAt,
       nowMs: args.nowMs,
       metricas: args.metricas,
     });
     if (envio.estado === "error") {
-      return { ...base, estado: "error", touch, motivo: envio.motivo, error: envio.error };
+      return { lead_id: lead.id, estado: "error", touch, motivo: envio.motivo, error: envio.error };
     }
     if (envio.estado === "omitido") {
-      return { ...base, touch, motivo: envio.motivo };
+      return { lead_id: lead.id, estado: "omitido", touch, motivo: envio.motivo };
     }
     return { lead_id: lead.id, estado: "enviado", touch, genStep };
   } catch (err) {
@@ -97,12 +118,22 @@ async function procesarLeadGeneradores(args: {
   }
 }
 
-/** Mismas reglas comerciales; el último mensaje entrante se carga en una sola consulta. */
+/** Mismas reglas comerciales; parte de la actividad reciente en lugar de recorrer leads. */
 export async function ejecutarReengagementGeneradoresCron(
   nowMs = Date.now(),
 ): Promise<ResumenFlujo<ResultadoLeadGeneradores>> {
   const metricas = nuevasMetricas();
   const supabase = getSupabaseAdmin();
+
+  const entrantes = await ultimosEntrantesRecientes({
+    nowMs,
+    ventanaMinutos: GEN_TOQUE_2_HASTA_MINUTOS,
+    metricas,
+  });
+  const enVentana = [...entrantes].filter(([, e]) =>
+    enVentanaDeToque(minutosDesdeUltimoEntrante(e.at, nowMs)),
+  );
+  if (enVentana.length === 0) return resumirFlujo(0, [], metricas);
 
   metricas.consultas += 1;
   const { data: leads, error: leadsError } = await supabase
@@ -110,7 +141,11 @@ export async function ejecutarReengagementGeneradoresCron(
     .select(
       "id, whatsapp_phone, estado, producto, gen_reengagement_1_sent_at, gen_reengagement_2_sent_at",
     )
-    .eq("estado", "nuevo")
+    .in(
+      "id",
+      enVentana.map(([leadId]) => leadId),
+    )
+    .in("estado", [...ESTADOS_LEAD_REENGAGEMENT])
     .eq("producto", "generadores")
     .or("gen_reengagement_1_sent_at.is.null,gen_reengagement_2_sent_at.is.null");
 
@@ -119,20 +154,16 @@ export async function ejecutarReengagementGeneradoresCron(
   }
 
   const candidatos = (leads ?? []) as LeadGeneradoresCron[];
-  if (candidatos.length === 0) {
-    return resumirFlujo(0, [], metricas);
-  }
+  if (candidatos.length === 0) return resumirFlujo(0, [], metricas);
 
   metricas.consultas += 1;
   const { data: convs, error: convsError } = await supabase
     .from("conversations")
-    .select("whatsapp_phone, state, producto, data")
+    .select("whatsapp_phone, lead_id, state, producto, data")
     .in(
       "whatsapp_phone",
       candidatos.map((l) => l.whatsapp_phone),
-    )
-    .eq("producto", "generadores")
-    .neq("state", "finalizado");
+    );
 
   if (convsError) {
     throw new Error(
@@ -146,40 +177,62 @@ export async function ejecutarReengagementGeneradoresCron(
   }
 
   const resultados: ResultadoLeadGeneradores[] = [];
-  const elegibles: { lead: LeadGeneradoresCron; genStep: GenStep }[] = [];
+  const confirmados: {
+    lead: LeadGeneradoresCron;
+    genStep: GenStep;
+    entrante: EntranteReciente;
+  }[] = [];
   for (const lead of candidatos) {
     const conv = convPorPhone.get(lead.whatsapp_phone);
     const genStep = parseGenStep(conv?.data);
-    if (
-      genStep &&
-      conversacionElegibleGeneradores({
-        producto: conv?.producto ?? lead.producto,
-        state: conv?.state,
+    const entrante = entrantes.get(lead.id)!;
+    if (!conv || conv.producto !== "generadores" || lead.producto !== "generadores") {
+      resultados.push(omitido(lead.id, "producto_no_confirmado"));
+    } else if (conv.lead_id && conv.lead_id !== lead.id) {
+      resultados.push(omitido(lead.id, "conversacion_de_otro_lead"));
+    } else if (
+      !genStep ||
+      !conversacionElegibleGeneradores({
+        producto: conv.producto,
+        state: conv.state,
         genStep,
         leadEstado: lead.estado,
       })
     ) {
-      elegibles.push({ lead, genStep });
+      resultados.push(omitido(lead.id, "conversacion_no_elegible"));
+    } else if (clientePausoORechazo("generadores", entrante.contenido)) {
+      resultados.push(omitido(lead.id, "cliente_pauso_o_rechazo"));
     } else {
-      resultados.push({ lead_id: lead.id, estado: "omitido", motivo: "conversacion_no_elegible" });
+      confirmados.push({ lead, genStep, entrante });
     }
   }
-  if (elegibles.length === 0) {
+  if (confirmados.length === 0) {
     return resumirFlujo(candidatos.length, resultados, metricas);
   }
 
-  const ultimos = await ultimosEntrantesPorLead(
-    elegibles.map((e) => e.lead.id),
-    new Date(nowMs - GEN_WHATSAPP_VENTANA_MAX_MINUTES * 60_000).toISOString(),
-    metricas,
-  );
+  const ids = confirmados.map((c) => c.lead.id);
+  const desde = confirmados
+    .map((c) => c.entrante.at)
+    .reduce((a, b) => (Date.parse(a) < Date.parse(b) ? a : b));
+  const posteriores = await mensajesPosteriores(ids, desde, metricas);
+  const atendidos = await leadsConAtencionHumana(ids, metricas);
 
-  for (const { lead, genStep } of elegibles) {
+  for (const { lead, genStep, entrante } of confirmados) {
+    if (atendidos.has(lead.id)) {
+      resultados.push(omitido(lead.id, "atencion_humana"));
+      continue;
+    }
+    const espera = esperaRespuestaDelCliente(entrante.at, posteriores.get(lead.id) ?? []);
+    if (!espera.ok) {
+      resultados.push(omitido(lead.id, espera.motivo));
+      continue;
+    }
     resultados.push(
-      await procesarLeadGeneradores({
+      await enviarToqueGeneradores({
         lead,
         genStep,
-        ultimoEntranteAt: ultimos.get(lead.id),
+        entrante,
+        ultimoMensajeAt: espera.ultimoMensajeAt,
         nowMs,
         metricas,
       }),

@@ -8,6 +8,7 @@ import {
 } from "@/lib/comandoProducto";
 import { getConversation } from "@/lib/conversationMemory";
 import { detectarPrefijoAsesor, ADVISOR_ID_ADMIN } from "@/lib/detectarProducto";
+import { ACCIONES_INTERVENCION_ASESOR } from "@/lib/intervencionAsesor";
 import { ensureLeadProvisional } from "@/lib/leadProvisional";
 import {
   buscarLeadPorId,
@@ -374,7 +375,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           .from("lead_actions")
           .select("id")
           .eq("lead_id", leadIdParaVerificar)
-          .in("accion", ["mensaje_asesor", "archivo_asesor"])
+          .in("accion", [...ACCIONES_INTERVENCION_ASESOR])
           .limit(1)
           .maybeSingle();
 

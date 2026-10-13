@@ -40,7 +40,7 @@ export function conversacionElegibleGeneradores(args: {
   genStep: GenStep | null;
   leadEstado: string | null | undefined;
 }): boolean {
-  if (args.leadEstado !== "nuevo") return false;
+  if (args.leadEstado !== "nuevo" && args.leadEstado !== "contactado") return false;
   if (args.producto !== "generadores") return false;
   if (args.state === "finalizado") return false;
   return args.genStep != null;

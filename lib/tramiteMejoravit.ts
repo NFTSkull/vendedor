@@ -724,6 +724,11 @@ function esSiNo(texto: string): "si" | "no" | null {
   return null;
 }
 
+/** El cliente dijo que seguirá después ("luego te escribo", "más tarde", "estoy ocupado"). */
+export function esPausaExplicita(texto: string): boolean {
+  return REGEX_PAUSA.test(normalizarTexto(texto));
+}
+
 export function detectarIntencionLocal(
   t: TramiteMejoravit,
   texto: string,

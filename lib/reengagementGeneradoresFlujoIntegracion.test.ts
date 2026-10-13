@@ -45,7 +45,7 @@ import {
 } from "@/lib/reengagementGeneradores";
 import { ejecutarReengagementGeneradoresCron } from "@/lib/reengagementGeneradoresCron";
 
-const NOW = new Date("2026-06-10T15:00:00.000Z").getTime();
+const NOW = new Date("2026-10-20T15:00:00.000Z").getTime();
 const PHONE = "5215559999999";
 const LEAD_ID = "lead-gen-equipos";
 const PREGUNTA_HORARIO = "¿En qué día y horario te podemos contactar?";
@@ -80,10 +80,21 @@ function configurarSupabase(args: {
             id: "m-1",
             lead_id: LEAD_ID,
             direccion: "entrante",
+            origen: "cliente",
+            contenido: "uso industrial",
             created_at: args.ultimoEntranteAt,
+          },
+          {
+            id: "m-2",
+            lead_id: LEAD_ID,
+            direccion: "saliente",
+            origen: "bot",
+            contenido: PREGUNTA_EQUIPOS,
+            created_at: new Date(Date.parse(args.ultimoEntranteAt) + 10_000).toISOString(),
           },
         ]
       : [],
+    lead_actions: [],
   });
   mocks.mockFrom.mockImplementation((table: string) => db.from(table));
   return db;
