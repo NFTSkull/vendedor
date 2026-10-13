@@ -88,9 +88,18 @@ const MSG_NSS_INVALIDO =
   "Necesito un número de seguro social (IMSS) de 11 dígitos. Intenta de nuevo.\n\n" +
   MSG_SOLICITUD_DATOS;
 
-const MSG_REINTENTO_PRECIFICACION =
-  "Por favor, comparte nuevamente tu número de seguro social (NSS) de 11 dígitos para continuar con la consulta.\n\n" +
-  MSG_SOLICITUD_DATOS;
+export const MSG_CONSULTA_NO_DISPONIBLE =
+  "Tuvimos un problema temporal al consultar tu información en Infonavit. " +
+  "Ya tenemos tu NSS, no necesitas enviarlo de nuevo. " +
+  "Escríbenos en unos minutos y lo volvemos a intentar.";
+
+/** NSS ya capturado cuya consulta al scraper no terminó; se reintenta sin volver a pedirlo. */
+export function nssPendienteDeConsulta(
+  data: Record<string, unknown> | undefined,
+): string | null {
+  const valor = data?.nssPendiente;
+  return typeof valor === "string" && /^\d{11}$/.test(valor) ? valor : null;
+}
 
 type RespuestaScraper = {
   success?: boolean;
@@ -161,12 +170,27 @@ async function consultarPrecalificacionScraper(
       signal: controller.signal,
     });
     if (!res.ok) {
-      throw new Error(`SCRAPER_HTTP_${res.status}`);
+      const appInexistente = res.headers.get("x-railway-fallback") === "true";
+      throw new Error(
+        `SCRAPER_HTTP_${res.status}${appInexistente ? "_RAILWAY_APP_NO_ENCONTRADA" : ""}`,
+      );
     }
     return (await res.json()) as RespuestaScraper;
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+/** Solo categorías técnicas: nunca incluye NSS, teléfono, secretos ni el cuerpo de la respuesta. */
+function tipoErrorScraper(err: unknown): string {
+  if (!(err instanceof Error)) return "desconocido";
+  if (err.message === "SCRAPER_NO_CONFIGURADO") return "no_configurado";
+  if (err.message.startsWith("SCRAPER_HTTP_")) return err.message.toLowerCase();
+  if (err.name === "AbortError" || err.name === "TimeoutError") return "timeout";
+  if (err instanceof SyntaxError) return "respuesta_no_json";
+  const code = (err.cause as { code?: unknown } | undefined)?.code;
+  if (typeof code === "string") return `red_${code}`;
+  return err.name === "TypeError" ? "red" : "desconocido";
 }
 
 export function preguntaDelEstado(state: BotState): string {
@@ -417,9 +441,17 @@ async function procesarPrecalificacionParaLead(
       return rechazar(phone, MSG_NO_CALIFICA_SCRAPER);
     }
 
-    return exacto(MSG_REINTENTO_PRECIFICACION);
-  } catch {
-    return exacto(MSG_REINTENTO_PRECIFICACION);
+    console.error("[scraper] Precalificación fallida", {
+      tipo: "respuesta_inesperada",
+      lead_id: leadIdNss,
+    });
+    return exacto(MSG_CONSULTA_NO_DISPONIBLE);
+  } catch (err) {
+    console.error("[scraper] Precalificación fallida", {
+      tipo: tipoErrorScraper(err),
+      lead_id: leadIdNss,
+    });
+    return exacto(MSG_CONSULTA_NO_DISPONIBLE);
   }
 }
 
@@ -579,10 +611,12 @@ export async function ejecutarPasoCore(args: {
     case "esperando_datos": {
       const digitosTexto = texto.replace(/\D/g, "");
       const textoTieneNssValido = digitosTexto.length === 11;
-      const nss =
+      const nssTexto =
         textoTieneNssValido && entrada?.nss && /^\d{11}$/.test(entrada.nss)
           ? entrada.nss
           : extraerNssOnceDigitos(texto);
+      const nssPendiente = nssPendienteDeConsulta(row.data);
+      const nss = nssTexto ?? nssPendiente;
       if (!nss) {
         return exacto(MSG_NSS_INVALIDO);
       }
@@ -601,6 +635,7 @@ export async function ejecutarPasoCore(args: {
         state: "esperando_datos",
         name: null,
         nss: null,
+        data: { nssPendiente: nss },
       });
       return procesarPrecalificacionParaLead(phone, nss, "", "horario");
     }

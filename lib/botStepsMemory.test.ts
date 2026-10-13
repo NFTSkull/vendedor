@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { procesarYEvolucionar } from "@/lib/botSteps";
+import { MSG_CONSULTA_NO_DISPONIBLE } from "@/lib/botStepsCore";
 import { aplicarComandoProducto } from "@/lib/comandoProducto";
 import { conversationMemory } from "@/lib/conversationMemory";
 import { COMPRA_CASA_PHONE_NUMBER_ID } from "@/lib/detectarProducto";
@@ -151,6 +152,12 @@ vi.mock("@/lib/supabaseAdmin", () => ({
     },
   }),
 }));
+
+async function llegarANss(phone: string) {
+  for (const texto of ["Hola", "Sí", "Sí", "No"]) {
+    await procesarYEvolucionar({ phone, textoUsuario: texto });
+  }
+}
 
 const FLUJO_SI = [
   "Hola",
@@ -303,7 +310,8 @@ describe("botSteps memoria Map", () => {
     expect(conversationMemory.get(p)?.state).toBe("finalizado");
   });
 
-  it("pide reingresar NSS cuando la precalificación no devuelve datos válidos", async () => {
+  it("respuesta sin datos válidos: avisa problema temporal sin volver a pedir el NSS", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -318,49 +326,153 @@ describe("botSteps memoria Map", () => {
     );
 
     const p = "5255555555555";
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
+    await llegarANss(p);
 
     const reply = await procesarYEvolucionar({
       phone: p,
       textoUsuario: "12345678901",
     });
 
-    expect(reply).toContain("comparte nuevamente tu número de seguro social");
-    expect(reply).not.toContain("problema");
-    expect(reply).not.toContain("error");
+    expect(reply).toBe(MSG_CONSULTA_NO_DISPONIBLE);
     expect(conversationMemory.get(p)?.state).toBe("esperando_datos");
+    expect(conversationMemory.get(p)?.data?.nssPendiente).toBe("12345678901");
+    expect(errorSpy).toHaveBeenCalledWith("[scraper] Precalificación fallida", {
+      tipo: "respuesta_inesperada",
+      lead_id: "lead-1",
+    });
+    errorSpy.mockRestore();
   });
 
-  it("pide reingresar NSS cuando falla la consulta al scraper", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/precalificar")) {
-          throw new Error("timeout");
-        }
-        return new Response("{}", { status: 200 });
-      }),
-    );
+  describe("falla del scraper", () => {
+    const NSS = "12345678901";
+    let errorSpy: ReturnType<typeof vi.spyOn>;
 
-    const p = "5266666666666";
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
-
-    const reply = await procesarYEvolucionar({
-      phone: p,
-      textoUsuario: "12345678901",
+    beforeEach(() => {
+      errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     });
 
-    expect(reply).toContain("comparte nuevamente tu número de seguro social");
-    expect(reply).not.toContain("problema");
-    expect(reply).not.toContain("error");
-    expect(conversationMemory.get(p)?.state).toBe("esperando_datos");
+    afterEach(() => {
+      errorSpy.mockRestore();
+    });
+
+    function scraperQueFalla(falla: () => Promise<Response>) {
+      const llamadasScraper: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (String(input).includes("/precalificar")) {
+            llamadasScraper.push(String(init?.body ?? ""));
+            return falla();
+          }
+          return new Response("{}", { status: 200 });
+        }),
+      );
+      return llamadasScraper;
+    }
+
+    function logsDeScraper(): string {
+      return JSON.stringify(
+        errorSpy.mock.calls.filter((c) => c[0] === "[scraper] Precalificación fallida"),
+      );
+    }
+
+    it("app de Railway inexistente (404 fallback): mensaje temporal, conserva NSS y estado", async () => {
+      scraperQueFalla(async () =>
+        new Response('{"message":"Application not found"}', {
+          status: 404,
+          headers: { "x-railway-fallback": "true" },
+        }),
+      );
+      const p = "5266666666666";
+      await llegarANss(p);
+
+      const reply = await procesarYEvolucionar({ phone: p, textoUsuario: NSS });
+
+      expect(reply).toBe(MSG_CONSULTA_NO_DISPONIBLE);
+      expect(reply).not.toContain("NSS de 11");
+      expect(reply).not.toContain("Compárteme");
+      expect(conversationMemory.get(p)?.state).toBe("esperando_datos");
+      expect(conversationMemory.get(p)?.data?.nssPendiente).toBe(NSS);
+      expect(leadsUpdateRows.some((u) => u.patch.nss === NSS)).toBe(true);
+      expect(errorSpy).toHaveBeenCalledWith("[scraper] Precalificación fallida", {
+        tipo: "scraper_http_404_railway_app_no_encontrada",
+        lead_id: "lead-1",
+      });
+      expect(logsDeScraper()).not.toContain(NSS);
+      expect(logsDeScraper()).not.toContain(p);
+    });
+
+    it("error de red: registra el código sin datos personales", async () => {
+      scraperQueFalla(async () => {
+        throw new TypeError("fetch failed", {
+          cause: Object.assign(new Error("getaddrinfo ENOTFOUND"), {
+            code: "ENOTFOUND",
+          }),
+        });
+      });
+      const p = "5267676767676";
+      await llegarANss(p);
+
+      const reply = await procesarYEvolucionar({ phone: p, textoUsuario: NSS });
+
+      expect(reply).toBe(MSG_CONSULTA_NO_DISPONIBLE);
+      expect(errorSpy).toHaveBeenCalledWith("[scraper] Precalificación fallida", {
+        tipo: "red_ENOTFOUND",
+        lead_id: "lead-1",
+      });
+      expect(logsDeScraper()).not.toContain(NSS);
+      expect(logsDeScraper()).not.toContain(p);
+    });
+
+    it("el siguiente mensaje reintenta con el NSS guardado sin pedirlo otra vez", async () => {
+      let disponible = false;
+      const llamadas = scraperQueFalla(async () =>
+        disponible
+          ? new Response(
+              JSON.stringify({ success: true, datos: { saldoSubcuenta: 100000 } }),
+              { status: 200 },
+            )
+          : new Response("{}", { status: 502 }),
+      );
+      const p = "5268686868686";
+      await llegarANss(p);
+
+      expect(await procesarYEvolucionar({ phone: p, textoUsuario: NSS })).toBe(
+        MSG_CONSULTA_NO_DISPONIBLE,
+      );
+      expect(errorSpy).toHaveBeenCalledWith("[scraper] Precalificación fallida", {
+        tipo: "scraper_http_502",
+        lead_id: "lead-1",
+      });
+
+      disponible = true;
+      const reply = await procesarYEvolucionar({ phone: p, textoUsuario: "ya?" });
+
+      expect(reply).toContain("Tu monto autorizado es:");
+      expect(conversationMemory.get(p)?.state).toBe("esperando_horario");
+      expect(llamadas).toHaveLength(2);
+      expect(JSON.parse(llamadas[1]).nss).toBe(NSS);
+    });
+
+    it("si el cliente manda otro NSS después de la falla, se usa el nuevo", async () => {
+      let disponible = false;
+      const llamadas = scraperQueFalla(async () =>
+        disponible
+          ? new Response(
+              JSON.stringify({ success: true, datos: { saldoSubcuenta: 100000 } }),
+              { status: 200 },
+            )
+          : new Response("{}", { status: 500 }),
+      );
+      const p = "5269696969696";
+      await llegarANss(p);
+      await procesarYEvolucionar({ phone: p, textoUsuario: NSS });
+
+      disponible = true;
+      await procesarYEvolucionar({ phone: p, textoUsuario: "98765432109" });
+
+      expect(JSON.parse(llamadas[1]).nss).toBe("98765432109");
+    });
   });
 
   it("marca no_interesado ante opt-out explícito", async () => {

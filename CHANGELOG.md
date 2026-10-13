@@ -1,5 +1,13 @@
 # Changelog
 
+## [Sin versión semver] — 2026-10-13 (precalificación Vercel → Railway)
+
+### Cambio actual
+
+- **Configuración:** `SCRAPER_SERVICE_URL` en Vercel apuntaba a un dominio de Railway que ya no existe (404 "Application not found"); ahora apunta a `https://mejoravit-scraper-production-fa7a.up.railway.app`. Afecta al bot y a `/api/precalificar` del CRM.
+- **Falla del scraper en el bot (Mejoravit):** ya no vuelve a pedir el NSS. Conserva el NSS capturado y el estado, responde que hubo un problema temporal y el siguiente mensaje reintenta la consulta con el NSS guardado (si el cliente manda otro NSS, se usa el nuevo).
+- **Logs:** `[scraper] Precalificación fallida` con el tipo de error (`scraper_http_<status>`, `scraper_http_404_railway_app_no_encontrada`, `timeout`, `red_<código>`, `respuesta_no_json`, `respuesta_inesperada`, `no_configurado`) y `lead_id`; sin NSS, teléfono, secretos ni cuerpo de la respuesta.
+
 ## [Sin versión semver] — 2026-10-13
 
 ### Cambio actual

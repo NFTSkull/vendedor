@@ -16,6 +16,7 @@ import {
   esOptOut,
   manejarOptOut,
   MSG_REINTENTO_HORARIO,
+  nssPendienteDeConsulta,
   preguntaDelEstado,
   reiniciarFlujoCore,
   tipoEsperadoDelEstado,
@@ -140,9 +141,13 @@ export async function procesarYEvolucionar(args: {
 
   // Solo llamar a Claude si NO es una pregunta de sí/no.
   // Para sí/no, normalizeText es suficiente y más confiable.
+  // Con un NSS pendiente de consulta, cualquier mensaje reintenta sin volver a pedirlo.
+  const reintentoConNssPendiente =
+    state === "esperando_datos" && nssPendienteDeConsulta(conv.data) !== null;
   if (
     claudeDisponible() &&
-    ESTADOS_CON_CLAUDE.has(state)
+    ESTADOS_CON_CLAUDE.has(state) &&
+    !reintentoConNssPendiente
   ) {
     const interp = await interpretarRespuestaUsuario({
       phone,

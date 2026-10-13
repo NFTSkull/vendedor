@@ -1,5 +1,12 @@
 # DEVLOG
 
+## 2026-10-13 (precalificación Vercel → Railway)
+
+- Causa: `SCRAPER_SERVICE_URL` (Vercel, sensible, sin cambios desde 2026-05-22) apuntaba a un dominio `*.up.railway.app` de un servicio que ya no existe; Railway respondía 404 con `x-railway-fallback: true` y la solicitud nunca llegaba a `mejoravit-scraper` (proyecto creado el 2026-08-27, único dominio `-fa7a`). `SCRAPER_SECRET` sí coincide con Railway. No existe `SCRAPER_URL`, así que el bot usa `SCRAPER_SERVICE_URL`.
+- Verificación sin exponer valores: build de Preview desechable que solo imprimió comparaciones (host == `-fa7a`, DNS, `GET /health`, sha256 del secreto contra el de Railway); el deploy falló a propósito y se eliminó.
+- `lib/botStepsCore.ts`: `tipoErrorScraper` clasifica el error (sin datos personales) y se registra junto al `lead_id`. Antes el `catch` lo descartaba y respondía igual que ante una respuesta vacía.
+- Decisión: al recibir el NSS se guarda en `conversations.data.nssPendiente` antes de consultar. Si la consulta falla, el estado sigue en `esperando_datos` y el siguiente mensaje reintenta con ese NSS. `lib/botSteps.ts` no pasa por Claude en ese caso, porque su "fuera de tema"/"inválido" volvería a pedir el NSS.
+
 ## 2026-10-13 (comando de producto Mejoravit ↔ Compra de Casa)
 
 - `lib/comandoProducto.ts`: `detectarComandoProducto` (mensaje completo normalizado, sin acentos ni signos), `esNumeroConComandoProducto` (`COMPRA_CASA_PHONE_NUMBER_ID`) y `aplicarComandoProducto`.
