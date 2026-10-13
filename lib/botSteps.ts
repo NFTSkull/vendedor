@@ -10,12 +10,12 @@ import { getConversation } from "@/lib/conversationMemory";
 import { procesarYEvolucionarCompraCasa } from "@/lib/botStepsCompraCasa";
 import { procesarYEvolucionarGeneradores } from "@/lib/botStepsGeneradores";
 import { procesarYEvolucionarPaneles } from "@/lib/botStepsPaneles";
+import { procesarTramiteMejoravit } from "@/lib/botStepsTramite";
 import {
   ejecutarPasoCore,
   esComandoReinicio,
   esOptOut,
   manejarOptOut,
-  MSG_REINTENTO_HORARIO,
   nssPendienteDeConsulta,
   preguntaDelEstado,
   reiniciarFlujoCore,
@@ -32,7 +32,6 @@ const ESTADOS_CON_CLAUDE: ReadonlySet<BotState> = new Set([
   "esperando_infonavit",
   "esperando_credito_activo",
   "esperando_datos",
-  "esperando_horario",
 ]);
 
 async function estadoActivo(phone: string): Promise<BotState> {
@@ -112,6 +111,18 @@ export async function procesarYEvolucionar(args: {
     return aplicarClaudeSalida(phone, reinicio, "reinicio");
   }
 
+  // El trámite maneja sus propios rechazos y pausas sin borrar el avance ni marcar el lead.
+  if (estadoActual === "tramite_mejoravit") {
+    return limpiarMarkdown(
+      await procesarTramiteMejoravit({
+        phone,
+        texto,
+        leadId: conv.lead_id,
+        nssConversacion: typeof conv.data?.nss === "string" ? conv.data.nss : null,
+      }),
+    );
+  }
+
   if (estadoActual !== "inicio" && esOptOut(texto)) {
     const resultadoOptOut = await manejarOptOut(phone);
     return resultadoOptOut.texto;
@@ -125,7 +136,7 @@ export async function procesarYEvolucionar(args: {
     return resultadoInicio.texto;
   }
 
-  if (estadoActual === "finalizado") {
+  if (estadoActual === "finalizado" || estadoActual === "esperando_horario") {
     const resultado = await ejecutarPasoCore({
       phone,
       textoUsuario: texto,
@@ -135,7 +146,7 @@ export async function procesarYEvolucionar(args: {
 
   const state = estadoActual;
   const statePregunta = estadoParaPregunta(state);
-  console.log("[FLUJO] estado:", state, "texto:", texto);
+  console.log("[FLUJO] estado:", state);
 
   let entrada: EntradaInterpretada | undefined;
 
@@ -159,13 +170,9 @@ export async function procesarYEvolucionar(args: {
     console.log("[FLUJO] interpretacion Claude:", interp?.tipo);
 
     if (interp?.tipo === "fuera_tema") {
-      if (state === "esperando_horario" && texto.length >= 3) {
-        entrada = { esHorarioValido: true };
-      } else {
-        return limpiarMarkdown(
-          interp.respuestaRetomo ?? preguntaDelEstado(statePregunta),
-        );
-      }
+      return limpiarMarkdown(
+        interp.respuestaRetomo ?? preguntaDelEstado(statePregunta),
+      );
     }
 
     if (interp?.tipo === "reiniciar") {
@@ -175,12 +182,6 @@ export async function procesarYEvolucionar(args: {
     }
 
     if (interp?.tipo === "ambiguo" || interp?.tipo === "invalido") {
-      if (state === "esperando_horario" && interp.respuestaRetomo) {
-        return limpiarMarkdown(interp.respuestaRetomo);
-      }
-      if (state === "esperando_horario") {
-        return MSG_REINTENTO_HORARIO;
-      }
       return preguntaDelEstado(statePregunta);
     }
 

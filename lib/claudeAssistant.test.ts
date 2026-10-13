@@ -11,6 +11,7 @@ vi.mock("@anthropic-ai/sdk", () => ({
 }));
 
 import {
+  interpretarMensajeTramite,
   interpretarRespuestaCompraCasa,
   limpiarHistorialClaude,
   naturalizarMensajeBot,
@@ -96,5 +97,58 @@ describe("limpiarHistorialClaude", () => {
 
     expect(mensajesDeLlamada(2)).toHaveLength(3);
     limpiarHistorialClaude(otra);
+  });
+});
+
+describe("interpretarMensajeTramite", () => {
+  const contexto = {
+    etapa: "captura" as const,
+    preguntaActual: "¿Cuál es tu correo electrónico?",
+    campoActual: "correo" as const,
+    campos: [{ clave: "correo" as const, descripcion: "correo electrónico del cliente" }],
+    camposCapturados: [],
+    montoNetoEstimado: 152100,
+  };
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("solo acepta claves de campos del trámite (nunca NSS ni campos internos)", async () => {
+    mocks.create.mockResolvedValueOnce(
+      respuestaTexto(
+        JSON.stringify({
+          intencion: "dato",
+          datos: {
+            correo: " juan@example.com ",
+            nss: "12345678901",
+            porcentaje_cobro: "10",
+            telefono_casa: 8183334444,
+          },
+          respuesta: null,
+        }),
+      ),
+    );
+
+    const r = await interpretarMensajeTramite({ textoUsuario: "juan@example.com", contexto });
+
+    expect(r).toEqual({ intencion: "dato", datos: { correo: "juan@example.com" }, respuesta: null });
+    const prompt = mocks.create.mock.calls[0][0].messages[0].content as string;
+    expect(prompt).toContain("$152,100");
+    expect(prompt).toContain("¿Cuál es tu correo electrónico?");
+  });
+
+  it("intención desconocida o JSON inválido → null (el flujo sigue sin Claude)", async () => {
+    mocks.create.mockResolvedValueOnce(respuestaTexto('{"intencion":"agendar"}'));
+    expect(await interpretarMensajeTramite({ textoUsuario: "x", contexto })).toBeNull();
+    mocks.create.mockResolvedValueOnce(respuestaTexto("no es json"));
+    expect(await interpretarMensajeTramite({ textoUsuario: "x", contexto })).toBeNull();
   });
 });

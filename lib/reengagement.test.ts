@@ -4,6 +4,7 @@ import {
   autorizadoCron,
   construirMensajeReengagement,
   elegibleParaToque,
+  estadoPermiteReengagement,
   formatearMonto,
   leadTieneMonto,
   resolverToquePendiente,
@@ -120,14 +121,15 @@ describe("reengagement", () => {
     expect(mensaje).toContain("11 dígitos");
   });
 
-  it("genera mensaje de horario sin detalles del crédito en toque 2", () => {
-    const mensaje = construirMensajeReengagement(2, "esperando_horario", {
-      monto_aprobado_min: 120000,
-      monto_aprobado_max: 135000,
-    });
-    expect(mensaje).toContain("¿Te podemos contactar ahorita mismo");
-    expect(mensaje).not.toContain("Mejoravit");
-    expect(mensaje).not.toContain("monto autorizado");
+  it("no pide horario de contacto: esperando_horario y el trámite no reciben toques", () => {
+    expect(estadoPermiteReengagement("esperando_horario")).toBe(false);
+    expect(estadoPermiteReengagement("tramite_mejoravit")).toBe(false);
+    expect(
+      construirMensajeReengagement(2, "esperando_horario", {
+        monto_aprobado_min: 120000,
+        monto_aprobado_max: 135000,
+      }),
+    ).toBeNull();
   });
 
   it("resuelve toque pendiente por prioridad", () => {

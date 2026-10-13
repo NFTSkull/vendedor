@@ -10,6 +10,11 @@ import {
   ensureLeadProvisional,
 } from "@/lib/leadProvisional";
 import { buscarLeadPorTelefono } from "@/lib/messagesDb";
+import {
+  esPrecalificacionAprobada,
+  iniciarTramiteTrasPrecalificacion,
+} from "@/lib/botStepsTramite";
+import { estimarCreditoMejoravit } from "@/lib/mejoravitCredito";
 import { extraerNssOnceDigitos } from "@/lib/nss";
 import {
   esAfirmativo,
@@ -19,6 +24,8 @@ import {
 } from "@/lib/normalizeText";
 import { MSG_CONTACTO_HORARIO } from "@/lib/reengagement";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { mensajeOferta } from "@/lib/tramiteMejoravit";
+import { leerLeadConTramite } from "@/lib/tramiteMejoravitRepo";
 
 export type BotState =
   | "inicio"
@@ -27,6 +34,7 @@ export type BotState =
   | "esperando_credito_activo"
   | "esperando_datos"
   | "esperando_horario"
+  | "tramite_mejoravit"
   | "finalizado";
 
 export type ResultadoPaso = {
@@ -93,6 +101,28 @@ export const MSG_CONSULTA_NO_DISPONIBLE =
   "Ya tenemos tu NSS, no necesitas enviarlo de nuevo. " +
   "Escríbenos en unos minutos y lo volvemos a intentar.";
 
+export const MSG_CONSULTA_EN_CURSO =
+  "Sigo consultando tu información en Infonavit; en cuanto tenga el resultado te lo comparto por aquí. 😊";
+
+/** Algo más que el timeout del scraper (180 s): mientras tanto no se lanza otra consulta. */
+const VENTANA_CONSULTA_EN_CURSO_MS = 200_000;
+/** Una precalificación aprobada del mismo NSS se reutiliza en lugar de volver a consultar Railway. */
+const VIGENCIA_PRECALIFICACION_MS = 7 * 24 * 60 * 60 * 1000;
+
+function consultaEnCurso(
+  data: Record<string, unknown> | undefined,
+  nss: string,
+  ahoraMs: number,
+): boolean {
+  const inicio =
+    typeof data?.consultaIniciadaAt === "string" ? Date.parse(data.consultaIniciadaAt) : NaN;
+  return (
+    data?.nssPendiente === nss &&
+    Number.isFinite(inicio) &&
+    ahoraMs - inicio < VENTANA_CONSULTA_EN_CURSO_MS
+  );
+}
+
 /** NSS ya capturado cuya consulta al scraper no terminó; se reintenta sin volver a pedirlo. */
 export function nssPendienteDeConsulta(
   data: Record<string, unknown> | undefined,
@@ -104,6 +134,8 @@ export function nssPendienteDeConsulta(
 type RespuestaScraper = {
   success?: boolean;
   califica?: boolean;
+  nss?: string;
+  nombre?: string | null;
   montoCredito?: number | string;
   datos?: {
     montoCredito?: number | string;
@@ -119,10 +151,6 @@ type DatosPrecalificacionAprobada = {
 
 function extraerSaldoSubcuenta(resultado: RespuestaScraper): number {
   return parseNumero(resultado.datos?.saldoSubcuenta);
-}
-
-function mensajeMontoAutorizado(saldoSubcuenta: number): string {
-  return `Tu monto autorizado es:\n${formatMoneda(saldoSubcuenta)} 🏠`;
 }
 
 function horarioGuardadoEnConversacion(
@@ -142,10 +170,6 @@ function parseNumero(value: number | string | undefined): number {
   const limpio = value.replace(/[^0-9.]/g, "");
   const parsed = Number(limpio);
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function formatMoneda(value: number): string {
-  return `$${Math.floor(value).toLocaleString("es-MX")}`;
 }
 
 async function consultarPrecalificacionScraper(
@@ -285,7 +309,7 @@ export async function manejarOptOut(phone: string): Promise<ResultadoPaso> {
     estado: "no_interesado",
   });
   if (!ok) {
-    console.error("[lead] Error marcando lead no_interesado:", { phone });
+    console.error("[lead] Error marcando lead no_interesado");
   }
   await setConversation(phone, {
     state: "finalizado",
@@ -301,7 +325,7 @@ async function rechazar(phone: string, mensaje: string): Promise<ResultadoPaso> 
     estado: "descalificado",
   });
   if (!descalificadoOk) {
-    console.error("[lead] Error marcando lead descalificado:", { phone });
+    console.error("[lead] Error marcando lead descalificado");
   }
   await setConversation(phone, {
     state: "finalizado",
@@ -357,20 +381,14 @@ async function resolverNssGuardado(
 async function procesarPrecalificacionParaLead(
   phone: string,
   nss: string,
-  horario: string,
-  trasMonto: "horario" | "finalizar",
 ): Promise<ResultadoPaso> {
   datosPrecalificacionPorTelefono.delete(phone);
   const leadIdNss = await resolverLeadId(phone);
-  console.log("[lead confirmado]", {
-    phone,
-    name: null,
-    nss,
-    lead_id: leadIdNss,
-  });
+  console.log("[lead confirmado]", { lead_id: leadIdNss });
 
   try {
-    const resultado = await consultarPrecalificacionScraper(nss);
+    const previa = leadIdNss ? await precalificacionPreviaVigente(leadIdNss, nss) : null;
+    const resultado = previa ?? (await consultarPrecalificacionScraper(nss));
     const saldoSubcuenta = extraerSaldoSubcuenta(resultado);
     const saldoSubcuentaRaw = resultado.datos?.saldoSubcuenta;
     const montoCreditoRaw =
@@ -378,63 +396,26 @@ async function procesarPrecalificacionParaLead(
     const success = resultado.success === true || resultado.califica === true;
 
     if (success && saldoSubcuenta > 0 && saldoSubcuentaRaw !== undefined) {
-      const datosPrecalificacion = {
-        saldoSubcuentaRaw,
-        saldoSubcuenta,
-        montoCreditoRaw,
-      };
-      const leadIdMontos = await resolverLeadId(phone);
-      const montosPayload = {
-        saldo_subcuenta: saldoSubcuentaRaw,
-        monto_base: saldoSubcuenta,
-        monto_aprobado_min: saldoSubcuenta,
-        monto_aprobado_max: saldoSubcuenta,
-      };
-      console.log("[lead] Actualizando montos:", {
-        ...montosPayload,
-        lead_id: leadIdMontos,
+      return ofrecerTramite({
+        phone,
+        nss,
+        leadId: leadIdNss,
+        resultado,
+        reutilizada: previa !== null,
+        extrasLead: {
+          saldo_subcuenta: saldoSubcuentaRaw,
+          monto_base: saldoSubcuenta,
+          monto_aprobado_min: saldoSubcuenta,
+          monto_aprobado_max: saldoSubcuenta,
+          ...(montoCreditoRaw !== undefined ? { monto_credito: montoCreditoRaw } : {}),
+          precalificacion_status: "aprobado",
+          precalificacion_resultado: resultado,
+          precalificado_at: new Date().toISOString(),
+          ...(typeof resultado.nombre === "string" && resultado.nombre.trim()
+            ? { nombre_infonavit: resultado.nombre.trim() }
+            : {}),
+        },
       });
-      const montosOk = await actualizarLeadPorConversacion(phone, montosPayload);
-      if (!montosOk) {
-        console.error("[lead] Error guardando montos:", {
-          phone,
-          lead_id: leadIdMontos,
-        });
-      }
-      if (datosPrecalificacion.montoCreditoRaw !== undefined) {
-        const montoCreditoOk = await actualizarLeadPorConversacion(phone, {
-          monto_credito: datosPrecalificacion.montoCreditoRaw,
-        });
-        if (!montoCreditoOk) {
-          console.error("[lead] Error guardando monto_credito:", {
-            phone,
-            lead_id: leadIdMontos,
-          });
-        }
-      }
-
-      if (trasMonto === "horario") {
-        await setConversation(phone, {
-          state: "esperando_horario",
-          name: null,
-          nss: null,
-          data: { nss },
-        });
-        return exacto(
-          `${mensajeMontoAutorizado(saldoSubcuenta)}\n\n${MSG_MONTO_Y_HORARIO}`,
-        );
-      }
-
-      await guardarLead(phone, nss, horario, datosPrecalificacion);
-      await setConversation(phone, {
-        state: "finalizado",
-        name: null,
-        nss: null,
-        data: { horario, nss },
-      });
-      return exacto(
-        `${mensajeMontoAutorizado(saldoSubcuenta)}\n\n${mensajeFinalizadoPost(horario)}`,
-      );
     }
 
     if (resultado.success === false || resultado.califica === false) {
@@ -445,14 +426,144 @@ async function procesarPrecalificacionParaLead(
       tipo: "respuesta_inesperada",
       lead_id: leadIdNss,
     });
+    await liberarConsultaEnCurso(phone);
     return exacto(MSG_CONSULTA_NO_DISPONIBLE);
   } catch (err) {
     console.error("[scraper] Precalificación fallida", {
       tipo: tipoErrorScraper(err),
       lead_id: leadIdNss,
     });
+    await liberarConsultaEnCurso(phone);
     return exacto(MSG_CONSULTA_NO_DISPONIBLE);
   }
+}
+
+/** Tras una falla, el siguiente mensaje puede reintentar de inmediato con el NSS guardado. */
+async function liberarConsultaEnCurso(phone: string) {
+  await setConversation(phone, {
+    state: "esperando_datos",
+    name: null,
+    nss: null,
+    data: { consultaIniciadaAt: null },
+  });
+}
+
+/** Precalificación aprobada guardada en el lead para este mismo NSS y aún vigente. */
+async function precalificacionPreviaVigente(
+  leadId: string,
+  nss: string,
+): Promise<RespuestaScraper | null> {
+  const lead = await leerLeadConTramite(leadId);
+  if (!lead || lead.precalificacionStatus !== "aprobado") return null;
+  const resultado = lead.precalificacionResultado as RespuestaScraper | null;
+  const at = lead.precalificadoAt ? Date.parse(lead.precalificadoAt) : NaN;
+  if (
+    !resultado ||
+    resultado.nss !== nss ||
+    !esPrecalificacionAprobada(resultado) ||
+    !Number.isFinite(at) ||
+    Date.now() - at > VIGENCIA_PRECALIFICACION_MS
+  ) {
+    return null;
+  }
+  return resultado;
+}
+
+/** Precalificación exitosa: estima el crédito, inicia el trámite y ofrece continuar por el chat. */
+async function ofrecerTramite(args: {
+  phone: string;
+  nss: string;
+  leadId: string | null;
+  resultado: RespuestaScraper;
+  reutilizada: boolean;
+  extrasLead: Record<string, unknown>;
+}): Promise<ResultadoPaso> {
+  const extrasLead = args.reutilizada ? {} : args.extrasLead;
+  const tramite = args.leadId
+    ? await iniciarTramiteTrasPrecalificacion({
+        leadId: args.leadId,
+        phone: args.phone,
+        nss: args.nss,
+        resultado: args.resultado,
+        extrasLead,
+      })
+    : null;
+  if (!tramite) {
+    console.error("[tramite] No se pudo iniciar el trámite", { lead_id: args.leadId });
+    if (Object.keys(extrasLead).length > 0) {
+      await actualizarLeadPorConversacion(args.phone, extrasLead);
+    }
+  }
+  console.log("[tramite] Oferta", {
+    lead_id: args.leadId,
+    precalificacion_reutilizada: args.reutilizada,
+  });
+
+  await setConversation(args.phone, {
+    state: "tramite_mejoravit",
+    name: null,
+    nss: null,
+    data: { nss: args.nss, nssPendiente: null, consultaIniciadaAt: null },
+  });
+  const monto =
+    tramite?.credito.montoNetoEstimado ??
+    estimarCreditoMejoravit(extraerSaldoSubcuenta(args.resultado)).montoNetoEstimado;
+  return exacto(mensajeOferta(monto));
+}
+
+/**
+ * Conversaciones del flujo anterior (pedía horario para un asesor): pasan al trámite.
+ * Si el lead ya tiene saldo para este mismo NSS no se repite la consulta al portal.
+ */
+async function migrarDesdeEsperandoHorario(
+  phone: string,
+  row: { nss: string | null; data?: Record<string, unknown> },
+): Promise<ResultadoPaso> {
+  const nss = await resolverNssGuardado(phone, row);
+  if (!nss) {
+    await setConversation(phone, { state: "esperando_datos", name: null, nss: null });
+    return exacto(MSG_SOLICITUD_DATOS);
+  }
+
+  const leadId = await resolverLeadId(phone);
+  const lead = leadId ? await leerLeadConTramite(leadId) : null;
+  const resultadoGuardado = lead?.precalificacionResultado as RespuestaScraper | null | undefined;
+  const resultadoPrevio =
+    lead?.precalificacionStatus === "aprobado" &&
+    resultadoGuardado?.nss === nss &&
+    esPrecalificacionAprobada(resultadoGuardado)
+      ? resultadoGuardado
+      : null;
+  // Solo en memoria: el saldo del flujo anterior no se guarda como precalificacion_resultado.
+  const saldoAnterior: RespuestaScraper | null =
+    lead?.nss === nss && parseNumero(lead.saldoSubcuenta ?? undefined) > 0
+      ? { success: true, nss, datos: { saldoSubcuenta: lead.saldoSubcuenta ?? undefined } }
+      : null;
+  const resultado = resultadoPrevio ?? saldoAnterior;
+
+  console.log("[tramite] Migración desde esperando_horario", {
+    lead_id: leadId,
+    con_saldo: resultado !== null,
+  });
+
+  if (resultado) {
+    return ofrecerTramite({
+      phone,
+      nss,
+      leadId,
+      resultado,
+      reutilizada: true,
+      extrasLead: {},
+    });
+  }
+
+  await setConversation(phone, {
+    state: "esperando_datos",
+    name: null,
+    nss: null,
+    data: { nssPendiente: nss, consultaIniciadaAt: new Date().toISOString() },
+  });
+  return procesarPrecalificacionParaLead(phone, nss);
 }
 
 async function resolverLeadId(phone: string): Promise<string | null> {
@@ -469,41 +580,6 @@ async function resolverLeadId(phone: string): Promise<string | null> {
   }
 
   return ensureLeadProvisional(phone);
-}
-
-async function guardarLead(
-  phone: string,
-  nss: string,
-  horario: string,
-  datosPrecalificacion?: DatosPrecalificacionAprobada,
-) {
-  const leadPayload: Record<string, unknown> = {
-    nss,
-    horario,
-    estado: "nuevo",
-  };
-  if (datosPrecalificacion) {
-    leadPayload.saldo_subcuenta = datosPrecalificacion.saldoSubcuentaRaw;
-    leadPayload.monto_base = datosPrecalificacion.saldoSubcuenta;
-    leadPayload.monto_aprobado_min = datosPrecalificacion.saldoSubcuenta;
-    leadPayload.monto_aprobado_max = datosPrecalificacion.saldoSubcuenta;
-    if (datosPrecalificacion.montoCreditoRaw !== undefined) {
-      leadPayload.monto_credito = datosPrecalificacion.montoCreditoRaw;
-    }
-  }
-
-  const leadId = await resolverLeadId(phone);
-  if (!leadId) {
-    console.error("[lead] No se pudo resolver lead_id:", { phone, nss, horario });
-    return;
-  }
-
-  const ok = await actualizarLeadPorConversacion(phone, leadPayload);
-  if (!ok) {
-    console.error("[Supabase] Error actualizando lead:", { phone, nss, horario, lead_id: leadId });
-  } else {
-    console.log("[Supabase] Lead actualizado:", { phone, nss, horario, lead_id: leadId });
-  }
 }
 
 export async function reiniciarFlujoCore(phone: string): Promise<ResultadoPaso> {
@@ -620,60 +696,26 @@ export async function ejecutarPasoCore(args: {
       if (!nss) {
         return exacto(MSG_NSS_INVALIDO);
       }
+      if (consultaEnCurso(row.data, nss, Date.now())) {
+        return exacto(MSG_CONSULTA_EN_CURSO);
+      }
 
       const leadIdNss = await resolverLeadId(phone);
       const nssOk = await actualizarLeadPorConversacion(phone, { nss });
       if (!nssOk) {
-        console.error("[lead] Error guardando NSS:", {
-          phone,
-          nss,
-          lead_id: leadIdNss,
-        });
+        console.error("[lead] Error guardando NSS:", { lead_id: leadIdNss });
       }
 
       await setConversation(phone, {
         state: "esperando_datos",
         name: null,
         nss: null,
-        data: { nssPendiente: nss },
+        data: { nssPendiente: nss, consultaIniciadaAt: new Date().toISOString() },
       });
-      return procesarPrecalificacionParaLead(phone, nss, "", "horario");
+      return procesarPrecalificacionParaLead(phone, nss);
     }
-    case "esperando_horario": {
-      const horarioValido =
-        entrada?.esHorarioValido === true || texto.length >= 3;
-      if (!horarioValido) {
-        return exacto(MSG_REINTENTO_HORARIO);
-      }
-      const leadIdHorario = await resolverLeadId(phone);
-      console.log("[lead] Actualizando horario:", texto, "lead_id:", leadIdHorario);
-      const horarioOk = await actualizarLeadPorConversacion(phone, { horario: texto });
-      if (!horarioOk) {
-        console.error("[lead] Error guardando horario:", {
-          phone,
-          horario: texto,
-          lead_id: leadIdHorario,
-        });
-      }
-
-      const nssGuardado = await resolverNssGuardado(phone, row);
-      if (!nssGuardado) {
-        await setConversation(phone, {
-          state: "esperando_datos",
-          name: null,
-          nss: null,
-          data: { ...(row.data ?? {}), horario: texto },
-        });
-        return exacto(MSG_SOLICITUD_DATOS);
-      }
-
-      return procesarPrecalificacionParaLead(
-        phone,
-        nssGuardado,
-        texto,
-        "finalizar",
-      );
-    }
+    case "esperando_horario":
+      return migrarDesdeEsperandoHorario(phone, row);
     default:
       return await reiniciarFlujoCore(phone);
   }

@@ -259,7 +259,7 @@ async function cerrarFlujo(
     nota,
   });
   if (!ok) {
-    console.error("[compra_casa] Error actualizando lead:", { phone });
+    console.error("[compra_casa] Error actualizando lead");
   }
   await setConversation(phone, {
     state: "finalizado",

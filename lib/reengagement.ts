@@ -11,7 +11,6 @@ const ESTADOS_REENGAGEMENT = new Set<BotRuntimeState>([
   "esperando_infonavit",
   "esperando_credito_activo",
   "esperando_datos",
-  "esperando_horario",
 ]);
 
 export type LeadReengagement = {

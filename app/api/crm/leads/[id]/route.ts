@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { requireCrmAuth } from "@/lib/crmAuth";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { sinTramiteMejoravit } from "@/lib/tramiteMejoravitRepo";
 
 const PatchSchema = z
   .object({
@@ -44,7 +45,7 @@ export async function GET(req: Request, ctx: Ctx): Promise<Response> {
       return Response.json({ error: "Lead no encontrado" }, { status: 404 });
     }
 
-    return Response.json(data, { status: 200 });
+    return Response.json(sinTramiteMejoravit(data), { status: 200 });
   } catch (err) {
     console.error("[CRM lead GET] Error:", err);
     return Response.json({ error: "Error interno" }, { status: 500 });

@@ -7,6 +7,7 @@ export type BotRuntimeState =
   | "esperando_credito_activo"
   | "esperando_datos"
   | "esperando_horario"
+  | "tramite_mejoravit"
   | "finalizado";
 
 export type ConversationValue = {

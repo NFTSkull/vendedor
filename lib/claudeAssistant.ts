@@ -1,6 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import type { BotState } from "@/lib/botStepsCore";
+import {
+  CAMPOS_CAPTURA,
+  contextoParaInterpretacion,
+  type CampoCaptura,
+  type IntencionTramite,
+  type InterpretacionTramite,
+} from "@/lib/tramiteMejoravit";
 
 const SYSTEM_PROMPT = `Eres el asistente de calificación de Mejoravit en WhatsApp.
 Tu único trabajo es interpretar lo que escribe el usuario
@@ -525,6 +532,124 @@ Devuelve SOLO JSON válido (sin markdown) con esta forma:
     };
   } catch (err) {
     console.error("[claude interpretar compra_casa]", err);
+    return null;
+  }
+}
+
+const SYSTEM_PROMPT_TRAMITE_MEJORAVIT = `Eres el asesor comercial de crédito Mejoravit en WhatsApp. El cliente ya fue precalificado y estás integrando su trámite por este chat.
+Tu trabajo en cada mensaje: entender qué quiere el cliente y extraer los datos que comparte. El sistema decide qué preguntar después; tú no formulas la siguiente pregunta.
+
+Intenciones posibles:
+- "acepta": quiere continuar con el trámite o autoriza el uso de sus datos.
+- "rechaza": no quiere hacer el trámite (no confundir con "no tengo número interior" o "no tiene apellido materno").
+- "dato": comparte uno o más datos.
+- "duda": hace una pregunta o pide una aclaración.
+- "pausa": quiere seguir en otro momento.
+- "no_lo_tiene": no tiene a la mano el dato que se le pidió.
+- "otro": cualquier otra cosa.
+
+Reglas para "datos":
+- Solo claves de la lista de campos que te da el sistema (y "celular" si el cliente corrige su celular).
+- Solo valores que el cliente escribió explícitamente en ESTE mensaje. Nunca inventes, completes ni deduzcas datos.
+- Separa nombres y apellidos en sus claves. Si el cliente dice que no tiene apellido materno o número interior, usa "" en esa clave.
+- En un domicilio separa calle, número exterior, número interior, colonia, municipio, estado y código postal.
+- Si el cliente corrige un dato ya capturado, devuelve la clave con el valor corregido.
+- Si comparte datos y además pregunta algo, usa "dato" y responde la duda en "respuesta".
+
+Reglas para "respuesta" (solo si hay una duda o comentario que atender; si no, null):
+- Español, cordial, texto plano para WhatsApp, máximo 3 líneas, sin markdown.
+- No repitas ni reformules la pregunta pendiente: el sistema la agrega después.
+- El monto es un importe neto estimado, sujeto a validación; nunca prometas aprobación ni un monto distinto.
+- No inventes tasas, plazos, pagos mensuales, tiempos ni requisitos. Si no lo sabes, di que se confirma durante la validación del trámite.
+- No ofrezcas llamadas ni pidas horarios, y no digas que un asesor se comunicará: el trámite continúa por este chat.
+- No pidas documentos, fotos ni PDFs todavía, y no digas que algún documento fue recibido o validado.
+- Si pregunta para qué se necesita un dato: es parte de su expediente del crédito Mejoravit.
+
+Responde SOLO JSON válido, sin markdown.`;
+
+const INTENCIONES_TRAMITE: ReadonlySet<IntencionTramite> = new Set([
+  "acepta",
+  "rechaza",
+  "dato",
+  "duda",
+  "pausa",
+  "no_lo_tiene",
+  "otro",
+]);
+const CLAVES_DATOS_TRAMITE: ReadonlySet<string> = new Set([...CAMPOS_CAPTURA, "celular"]);
+
+export async function interpretarMensajeTramite(args: {
+  textoUsuario: string;
+  contexto: ReturnType<typeof contextoParaInterpretacion>;
+}): Promise<InterpretacionTramite | null> {
+  const anthropic = clienteAnthropic();
+  if (!anthropic) return null;
+
+  const { contexto } = args;
+  const lista = (campos: Array<{ clave: string; descripcion: string }>) =>
+    campos.length ? campos.map((c) => `- ${c.clave}: ${c.descripcion}`).join("\n") : "(ninguno)";
+
+  const prompt = `Etapa del trámite: ${contexto.etapa}
+Importe neto estimado: $${Math.floor(contexto.montoNetoEstimado).toLocaleString("es-MX")}
+Pregunta pendiente:
+"""
+${contexto.preguntaActual}
+"""
+Campo de la pregunta pendiente: ${contexto.campoActual ?? "(ninguno)"}
+
+Campos que faltan:
+${lista(contexto.campos)}
+
+Campos ya capturados (solo si el cliente los corrige):
+${lista(contexto.camposCapturados)}
+
+Mensaje del cliente:
+"""
+${args.textoUsuario}
+"""
+
+Devuelve SOLO JSON con esta forma:
+{
+  "intencion": "acepta" | "rechaza" | "dato" | "duda" | "pausa" | "no_lo_tiene" | "otro",
+  "datos": { "<clave>": "<valor>" },
+  "respuesta": "texto breve o null"
+}`;
+
+  try {
+    const res = await anthropic.messages.create({
+      model: MODELO,
+      max_tokens: 600,
+      system: SYSTEM_PROMPT_TRAMITE_MEJORAVIT,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const bloque = res.content.find((b) => b.type === "text");
+    if (!bloque || bloque.type !== "text") return null;
+
+    const parsed = parseJson<{
+      intencion?: string;
+      datos?: Record<string, unknown>;
+      respuesta?: unknown;
+    }>(bloque.text);
+    if (!parsed?.intencion || !INTENCIONES_TRAMITE.has(parsed.intencion as IntencionTramite)) {
+      return null;
+    }
+
+    const datos: InterpretacionTramite["datos"] = {};
+    if (parsed.datos && typeof parsed.datos === "object") {
+      for (const [clave, valor] of Object.entries(parsed.datos)) {
+        if (CLAVES_DATOS_TRAMITE.has(clave) && typeof valor === "string") {
+          datos[clave as CampoCaptura | "celular"] = valor.trim();
+        }
+      }
+    }
+    const respuesta =
+      typeof parsed.respuesta === "string" && parsed.respuesta.trim()
+        ? limpiarMarkdown(parsed.respuesta.trim())
+        : null;
+
+    return { intencion: parsed.intencion as IntencionTramite, datos, respuesta };
+  } catch (err) {
+    console.error("[claude interpretar tramite]", err instanceof Error ? err.name : "desconocido");
     return null;
   }
 }

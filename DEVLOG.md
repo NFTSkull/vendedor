@@ -1,5 +1,63 @@
 # DEVLOG
 
+## 2026-10-13 (Paso 1: asesor inteligente Mejoravit)
+
+- **Fuentes revisadas** (sin modificarlas): `mejoravit-scraper` (respuesta real de `POST /precalificar`) y `crmconcasa` (contrato Datos Generales, validadores, triggers de Mesa, cálculo de cobro).
+- **`lib/mejoravitCredito.ts`:** `floor(min(base, 169000) × 0.90)`.
+  - Decisión: el CRM usa factor **0.89** (`clienteDatosCobro.ts`); aquí se aplica el 0.90 confirmado por negocio. Hay que alinearlos antes de integrar.
+  - Base: `datos.saldoSubcuenta`, la misma que ya usaba el bot.
+- **`lib/precalificacionScraper.ts`:**
+  - `empresa` y `registroPatronal` solo llegan con `califica: true` y pueden ser null.
+  - Se descartan etiquetas del portal ("N.R.P.:") y NRP que no tengan 11 caracteres alfanuméricos.
+- **`lib/tramiteMejoravit.ts`:** módulo puro (sin E/S) con etapas `oferta` → `consentimiento` → `captura` → `completo`, más `pausado` y `rechazado`.
+  - Cada dato guarda valor, procedencia (`precalificacion` | `whatsapp` | `cliente`) y fecha; también lleva pendientes con motivo, intentos y pregunta actual.
+  - Decisión: puro para poder recalcular el mensaje sobre la versión más reciente cuando hay mensajes concurrentes.
+- **Persistencia:** `leads.tramite_mejoravit jsonb` (`supabase/sql/leads_tramite_mejoravit.sql`).
+  - Decisión: en `leads` y no en `conversations.data`, porque "reiniciar" reemplaza `data` y el trámite debe sobrevivir a reinicios y a otras instancias de Vercel.
+  - Concurrencia optimista en `lib/tramiteMejoravitRepo.ts`: UPDATE condicionado a `tramite_mejoravit->>version` (o `is null` en la primera escritura). Si hay conflicto, se relee y se recalcula (máximo 3 intentos).
+  - Cada mensaje del trámite hace 3 llamadas a Supabase: leer la conversación, leer el lead y un UPDATE.
+- **Claude:** `interpretarMensajeTramite` es un prompt nuevo; no se tocaron los existentes.
+  - Devuelve intención, datos (solo claves permitidas; `nss` y campos internos se descartan) y respuesta a dudas.
+  - Máximo una llamada por mensaje.
+  - Sin Claude: sí/no, pausa, "no lo tengo", CURP, correo, teléfonos, CP, números y NRP con formato.
+  - Las preguntas agrupadas (nombre completo, domicilio completo) solo se usan si Claude está disponible. Si falla, se pregunta por partes.
+- **Router (`lib/botSteps.ts`):** `tramite_mejoravit` va después de "reiniciar" y antes del opt-out global.
+  - Decisión: dentro del trámite un rechazo no marca `no_interesado` ni manda "no te molestaremos más". Queda `etapa: rechazado` y el cliente puede retomar.
+  - El rechazo firme solo se detecta con el mensaje completo, para que "no me interesa dar mi teléfono" no cancele el trámite.
+- **`lib/botStepsCore.ts`:**
+  - Al aprobar, un solo UPDATE guarda los montos originales, las columnas de precalificación y el trámite.
+  - Si el trámite no se puede guardar (por ejemplo, sin la migración), se guardan las columnas de precalificación y el siguiente mensaje reconstruye el trámite desde `precalificacion_resultado`.
+  - Reutiliza la precalificación aprobada del mismo NSS (`resultado.nss`) por 7 días.
+  - `data.consultaIniciadaAt` evita una segunda consulta durante 200 s (el timeout del scraper es de 180 s). Se libera al fallar.
+- **Campos según el contrato del CRM (perfil completo del asesor):**
+  - Validaciones: CURP con regex del CRM, correo, teléfonos de 10 dígitos y distintos entre sí, CP de 5 dígitos, 2 referencias sin repetir.
+  - No se preguntan:
+    - RFC: opcional en el CRM y viene del portal.
+    - Estado civil, género y datos de la INE: los captura Mesa.
+    - CLABE: solo Equipo Silvia.
+    - Plazo y monto a solicitar: internos.
+  - El domicilio se captura estructurado; el CRM lo guarda como texto libre (`direccion_opcional`).
+- **Logs:** el trámite solo registra `lead_id`, etapa, campo actual (nombre del campo, no el valor) y si se usó Claude.
+
+### Cierre del Paso 1 (preparación de producción)
+
+- **Supabase:** el proyecto de Vendedor IA es `lxqvslupzxnkdzbhojad` ("mejoravit-crm"). Se confirmó cruzando un `lead_id` de los logs de producción. La migración no se aplica a ConCasa CRM ni a Precalix.
+- **RLS:** `leads` tiene RLS activo sin políticas para `anon`/`authenticated`; la app solo usa la service role. El trámite se lee desde el servidor y las rutas del CRM exigen JWT de asesor.
+  - Decisión: aun así, las rutas del CRM quitan `tramite_mejoravit` de sus respuestas (`sinTramiteMejoravit`). El detalle `GET /api/crm/leads/[id]` no filtra por asesor y el CRM todavía no usa el trámite.
+- **Hallazgos previos, sin corregir aquí (fuera del Paso 1):**
+  - `conversations` tiene RLS desactivado y grants para `anon`; guarda el NSS en `nss` y `data`.
+  - `POST /api/precalificar` no exige autenticación: cualquiera puede lanzar una consulta real, recibir nombre, RFC y empresa de un NSS, sobrescribir el lead de un teléfono y enviar WhatsApp. Las pantallas del CRM la llaman sin token.
+- **Migración de `esperando_horario`:** el núcleo (`migrarDesdeEsperandoHorario`) sustituye el cierre "finalizar".
+  - Decisión: el saldo anterior solo se reutiliza si `leads.nss` coincide con el NSS de la conversación.
+  - Decisión: el mensaje actual (normalmente un horario) no se interpreta; se responde con la oferta.
+  - El enrutador ya no pasa `esperando_horario` por Claude. Se eliminaron `guardarLead`, `mensajeMontoAutorizado` y el parámetro `trasMonto`, que solo servían al cierre anterior.
+  - Las conversaciones en `finalizado` siguen respondiendo como antes.
+- **Webhook:** los errores de Graph solo registran `{ code, type }`, porque el mensaje puede incluir el número destino.
+- **Pendiente para integrar con ConCasa:**
+  - El CRM no expone una API para crear o actualizar expedientes desde un sistema externo; las RPC exigen el JWT de un asesor.
+  - Alinear el factor 0.89/0.90.
+  - El teléfono de casa es obligatorio en el primer envío a Mesa.
+
 ## 2026-10-13 (precalificación Vercel → Railway)
 
 - Causa: `SCRAPER_SERVICE_URL` (Vercel, sensible, sin cambios desde 2026-05-22) apuntaba a un dominio `*.up.railway.app` de un servicio que ya no existe; Railway respondía 404 con `x-railway-fallback: true` y la solicitud nunca llegaba a `mejoravit-scraper` (proyecto creado el 2026-08-27, único dominio `-fa7a`). `SCRAPER_SECRET` sí coincide con Railway. No existe `SCRAPER_URL`, así que el bot usa `SCRAPER_SERVICE_URL`.

@@ -5,6 +5,7 @@ import {
   ordenarLeadsPorActividad,
 } from "@/lib/crmLeadsList";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { sinTramiteMejoravit } from "@/lib/tramiteMejoravitRepo";
 
 export async function GET(req: Request): Promise<Response> {
   try {
@@ -49,7 +50,7 @@ export async function GET(req: Request): Promise<Response> {
       return Response.json({ error: "Error interno" }, { status: 500 });
     }
 
-    const leads = data ?? [];
+    const leads = (data ?? []).map(sinTramiteMejoravit);
     const leadIds = leads.map((l) => l.id as string);
     const ultimosPorLead = await mapUltimosMensajesPorLead(supabase, leadIds);
 

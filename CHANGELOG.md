@@ -1,5 +1,43 @@
 # Changelog
 
+## [Sin versión semver] — 2026-10-13 (Paso 1: asesor inteligente Mejoravit)
+
+### Cambio actual
+
+- **Requisito previo de despliegue:** ejecutar `supabase/sql/leads_tramite_mejoravit.sql` (columna `leads.tramite_mejoravit jsonb`, aditiva).
+- **Crédito estimado:** importe neto estimado = `floor(min(saldoSubcuenta, 169000) × 0.90)` (máximo $152,100), presentado como estimación sujeta a validación. El saldo y la respuesta original del scraper se guardan sin cambios.
+- **Después de una precalificación aprobada:** ya no se pide horario ni se dice que un asesor contactará. El bot muestra el importe neto estimado y ofrece continuar el trámite por el chat. Si el cliente acepta: aviso de privacidad, consentimiento y captura de datos, una pregunta a la vez.
+- **Datos capturados (contrato Datos Generales de ConCasa):**
+  - Identidad: nombres y apellidos por separado y CURP.
+  - Contacto: correo y teléfono de casa distinto al celular.
+  - Domicilio: calle, número exterior e interior, colonia, municipio, estado y CP.
+  - Laboral: empresa, registro patronal, teléfono y dirección del trabajo.
+  - Referencias: dos, con nombres, apellidos y celular, sin repetir personas ni teléfonos.
+  - Beneficiario: nombre completo y parentesco.
+- **Datos que no se preguntan:** NSS (de la precalificación) y celular (de WhatsApp). Empresa y registro patronal tampoco se preguntan cuando los devuelve la precalificación.
+- **Sin preguntas de vivienda o mejora:** el bot no pregunta mejoras, presupuesto, materiales ni tipo de vivienda.
+- **Vendedor:**
+  - Acepta varios datos en un mensaje y correcciones.
+  - "Luego seguimos" pausa y guarda el avance; al volver, retoma en la misma pregunta.
+  - "No lo tengo ahorita" deja el dato pendiente y continúa; después de dos respuestas inválidas, el dato queda pendiente sin insistir.
+  - Pide aclaración si la CURP no coincide con el RFC de Infonavit o si la empresa difiere de la del portal.
+  - Rechazar el trámite no marca el lead como `no_interesado` ni borra el avance.
+- **Documentos e INE:** checklist pendiente (INE frente y reverso, comprobante de domicilio, estado de cuenta). No se piden ni se reciben archivos; la INE queda "vigente requerida, pendiente de revisión". `lib/ineVigencia.ts` deja lista la regla para la siguiente fase.
+- **Precalificación:**
+  - Se reutiliza la aprobada del mismo NSS (7 días) en lugar de volver a consultar Railway.
+  - No se lanza una segunda consulta mientras otra sigue en curso.
+  - Se guardan `precalificacion_resultado`, `precalificacion_status`, `precalificado_at` y `nombre_infonavit`, igual que hace la ruta del CRM.
+- **Logs:** se quitaron NSS, teléfono y texto del cliente de los logs del flujo Mejoravit y del alta de lead provisional.
+- **Conversaciones antiguas en `esperando_horario`:** con el siguiente mensaje pasan al trámite y ya no cierran con "un asesor te contactará".
+  - Si el lead ya tiene saldo guardado para el mismo NSS, se ofrece el trámite sin volver a consultar el portal; ese saldo no se guarda como `precalificacion_resultado`.
+  - Si el saldo es de otro NSS o no hay saldo, se consulta una vez (estas conversaciones nunca se habían precalificado).
+  - Sin NSS, se pide el NSS como antes. No se borra nada de `conversations.data` (el horario anterior se conserva).
+  - Ya no reciben el toque de re-engagement que pedía horario de contacto.
+- **CRM:** `GET /api/crm/leads` y `GET /api/crm/leads/[id]` no devuelven `tramite_mejoravit` (CURP, domicilio, referencias), porque el CRM todavía no lo muestra.
+- **Reconstrucción del trámite:** solo con una precalificación aprobada cuyo NSS coincide con el que el cliente escribió en el chat.
+- **Logs del webhook:** se quitó el payload completo de Meta, el remitente y el destino; los errores de la Graph API solo registran código y tipo. Compra de Casa y Generadores ya no registran el teléfono al fallar el UPDATE del lead.
+- **Sin cambios:** Compra de Casa, Generadores, Paneles, comando de producto, reiniciar, scraper, reintentos de NSS, intervención del asesor.
+
 ## [Sin versión semver] — 2026-10-13 (precalificación Vercel → Railway)
 
 ### Cambio actual

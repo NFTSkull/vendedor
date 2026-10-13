@@ -89,6 +89,12 @@ function isMultiNumberEnabled(): boolean {
   return process.env.WHATSAPP_MULTI_NUMBER_ENABLED === "true";
 }
 
+/** Solo código y tipo del error de Graph: el mensaje puede incluir el número destino. */
+function errorGraph(data: unknown): { code: unknown; type: unknown } | null {
+  const error = (data as { error?: { code?: unknown; type?: unknown } } | null)?.error;
+  return error ? { code: error.code ?? null, type: error.type ?? null } : null;
+}
+
 export async function GET(req: NextRequest): Promise<Response> {
   const verified = getMetaWebhookVerificationResponse(
     req.nextUrl.searchParams,
@@ -122,8 +128,6 @@ export async function POST(req: NextRequest): Promise<Response> {
     return new Response("Bad Request", { status: 400 });
   }
 
-  console.log("[WEBHOOK_DEBUG] payload completo (Meta):", JSON.stringify(payload, null, 2));
-
   if (isMultiNumberEnabled()) {
     try {
       if (payloadDebeIgnorarPorEcos(payload)) {
@@ -141,6 +145,10 @@ export async function POST(req: NextRequest): Promise<Response> {
     process.env.WHATSAPP_GRAPH_API_VERSION ?? process.env.GRAPH_API_VERSION;
   const mensajes = extraerTextosEntrantes(payload);
   const mensajesNoTexto = extraerMensajesNoTextoEntrantes(payload);
+  console.log("[webhook] Payload recibido", {
+    textos: mensajes.length,
+    noTexto: mensajesNoTexto.length,
+  });
   if (!accessToken || !phoneNumberId) {
     console.error(
       "Faltan WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID en el entorno",
@@ -190,7 +198,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       body: MSG_SOLO_TEXTO,
     });
     if (!envioNoTexto.ok) {
-      console.error("[WhatsApp send non-text]", envioNoTexto.status, envioNoTexto.data);
+      console.error("[WhatsApp send non-text]", envioNoTexto.status, errorGraph(envioNoTexto.data));
       continue;
     }
 
@@ -236,8 +244,6 @@ export async function POST(req: NextRequest): Promise<Response> {
       ultimoWamidPorTelefono.set(m.from, m.wamid);
     }
 
-    console.log("[WEBHOOK_DEBUG] from extraído (parseWhatsAppWebhook):", m.from);
-
     const convPrefijo = await getConversation(m.from);
     let textoProcesar = m.body;
     let advisorIdDetectado: string | null = null;
@@ -247,7 +253,6 @@ export async function POST(req: NextRequest): Promise<Response> {
       textoProcesar = prefijo.textoLimpio;
       if (advisorIdDetectado) {
         console.log("[webhook] Prefijo asesor detectado:", {
-          from: m.from,
           advisorId: advisorIdDetectado,
         });
       }
@@ -428,7 +433,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         body: "Un momento, estoy consultando tu información en Infonavit... ⏳",
       });
       if (!espera.ok) {
-        console.error("[WhatsApp wait]", espera.status, espera.data);
+        console.error("[WhatsApp wait]", espera.status, errorGraph(espera.data));
       } else {
         mensajesSalientesExitosos.push(
           "Un momento, estoy consultando tu información en Infonavit... ⏳",
@@ -451,8 +456,6 @@ export async function POST(req: NextRequest): Promise<Response> {
       continue;
     }
 
-    console.log("[WEBHOOK_DEBUG] to usado en Graph (enviarMensajeTextoWa):", m.from);
-
     const envio = await enviarMensajeTextoWa({
       phoneNumberId: resolvedPhoneNumberId,
       accessToken: resolvedAccessToken,
@@ -461,7 +464,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       body: reply,
     });
     if (!envio.ok) {
-      console.error("[WhatsApp send]", envio.status, envio.data);
+      console.error("[WhatsApp send]", envio.status, errorGraph(envio.data));
     } else {
       mensajesSalientesExitosos.push(reply);
 

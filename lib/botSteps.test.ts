@@ -5,6 +5,7 @@ const interpretarMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/claudeAssistant", () => ({
   claudeDisponible: () => true,
   interpretarRespuestaUsuario: interpretarMock,
+  interpretarMensajeTramite: vi.fn(),
   limpiarHistorialClaude: vi.fn(),
   limpiarMarkdown: (t: string) => t,
   naturalizarMensajeBot: vi.fn(),

@@ -82,7 +82,6 @@ export async function ensureLeadProvisional(
       producto: productoForzado ?? producto,
     });
     console.log("[leadProvisional] Lead provisional creado:", {
-      phone,
       leadId: data.id,
       producto,
       advisorId,

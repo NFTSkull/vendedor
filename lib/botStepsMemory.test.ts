@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { procesarYEvolucionar } from "@/lib/botSteps";
-import { MSG_CONSULTA_NO_DISPONIBLE } from "@/lib/botStepsCore";
+import { MSG_CONSULTA_EN_CURSO, MSG_CONSULTA_NO_DISPONIBLE } from "@/lib/botStepsCore";
 import { aplicarComandoProducto } from "@/lib/comandoProducto";
 import { conversationMemory } from "@/lib/conversationMemory";
 import { COMPRA_CASA_PHONE_NUMBER_ID } from "@/lib/detectarProducto";
 import { ensureLeadProvisional } from "@/lib/leadProvisional";
+import { MSG_RECHAZO_OFERTA, type TramiteMejoravit } from "@/lib/tramiteMejoravit";
 
 const conversationsStore = new Map<
   string,
@@ -54,8 +55,8 @@ function makeLeadsSelect() {
         if (!row) return { data: null, error: null };
         return {
           data: {
+            ...row,
             id: val,
-            whatsapp_phone: row.whatsapp_phone,
             estado: (row.estado as string) ?? "nuevo",
             horario: row.horario ?? null,
             nss: row.nss ?? null,
@@ -65,6 +66,44 @@ function makeLeadsSelect() {
       },
     }),
   };
+}
+
+/** UPDATE encadenable como PostgREST: `.eq("id")`, `.eq("tramite_mejoravit->>version")`, `.is()`, `.select()`. */
+function makeLeadsUpdate(patch: Record<string, unknown>) {
+  let id: string | null = null;
+  const filtros: Array<(row: Record<string, unknown>) => boolean> = [];
+  const ejecutar = () => {
+    const current = id ? leadsById.get(id) : undefined;
+    if (!id || !current || !filtros.every((f) => f(current))) {
+      return { data: [], error: null };
+    }
+    leadsUpdateRows.push({ id, patch });
+    leadsById.set(id, { ...current, ...patch });
+    return { data: [{ id }], error: null };
+  };
+  const builder = {
+    eq(col: string, val: string) {
+      if (col === "id") id = val;
+      else if (col === "tramite_mejoravit->>version") {
+        filtros.push(
+          (row) =>
+            String((row.tramite_mejoravit as { version?: number } | null)?.version) === val,
+        );
+      }
+      return builder;
+    },
+    is(col: string, val: null) {
+      filtros.push((row) => (row[col] ?? null) === val);
+      return builder;
+    },
+    select() {
+      return builder;
+    },
+    then<T>(resolve: (v: ReturnType<typeof ejecutar>) => T, reject?: (e: unknown) => T) {
+      return Promise.resolve(ejecutar()).then(resolve, reject);
+    },
+  };
+  return builder;
 }
 
 vi.mock("@/lib/supabaseAdmin", () => ({
@@ -86,14 +125,7 @@ vi.mock("@/lib/supabaseAdmin", () => ({
               },
             }),
           }),
-          update: (patch: Record<string, unknown>) => ({
-            eq: async (_col: string, id: string) => {
-              leadsUpdateRows.push({ id, patch });
-              const current = leadsById.get(id);
-              if (current) leadsById.set(id, { ...current, ...patch });
-              return { error: null };
-            },
-          }),
+          update: (patch: Record<string, unknown>) => makeLeadsUpdate(patch),
           select: () => makeLeadsSelect(),
         };
       }
@@ -165,7 +197,6 @@ const FLUJO_SI = [
   "SI",
   "no",
   "12345678901",
-  "Martes 10am",
 ] as const;
 
 describe("botSteps memoria Map", () => {
@@ -208,7 +239,7 @@ describe("botSteps memoria Map", () => {
     leadCounter = 0;
   });
 
-  it("crea lead provisional en el primer mensaje y lo actualiza al cerrar", async () => {
+  it("crea lead provisional y al aprobar guarda NSS, montos originales y precalificación", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const p = "5211111111111";
 
@@ -227,26 +258,27 @@ describe("botSteps memoria Map", () => {
     }
 
     expect(leadsUpdateRows.some((u) => u.patch.nss === "12345678901")).toBe(true);
-    expect(
-      leadsUpdateRows.some(
-        (u) => u.patch.horario === "Martes 10am" && u.patch.nss === "12345678901",
-      ),
-    ).toBe(true);
-    expect(logSpy).toHaveBeenCalledWith("[Supabase] Lead actualizado:", {
-      phone: p,
-      nss: "12345678901",
-      horario: "Martes 10am",
-      lead_id: "lead-1",
+    const lead = leadsById.get("lead-1")!;
+    expect(lead).toMatchObject({
+      saldo_subcuenta: 100000,
+      monto_base: 100000,
+      monto_credito: 85000,
+      precalificacion_status: "aprobado",
     });
-    expect(leadsUpdateRows.some((u) => u.patch.nss === "12345678901")).toBe(true);
-    expect(leadsUpdateRows.some((u) => u.patch.horario === "Martes 10am")).toBe(true);
+    expect(lead.precalificacion_resultado).toMatchObject({
+      success: true,
+      datos: { saldoSubcuenta: 100000, montoCredito: 85000 },
+    });
+    expect(lead.horario).toBe("");
 
+    const logs = JSON.stringify(logSpy.mock.calls);
+    expect(logs).not.toContain("12345678901");
+    expect(logs).not.toContain(p);
     logSpy.mockRestore();
   });
 
-  it("flujo completo hasta cierre con asesor y logea lead", async () => {
+  it("precalificación aprobada: ofrece el trámite con el importe neto estimado, sin horarios ni asesor", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-
     const p = "5211111111111";
     let reply: string | null = null;
 
@@ -255,59 +287,37 @@ describe("botSteps memoria Map", () => {
       expect(reply).toBeTruthy();
     }
 
-    expect(reply).toContain("Listo, un asesor te contactará Martes 10am");
-    expect(reply).toContain("8140100246");
-    expect(reply).not.toContain("8114118767");
-
-    expect(logSpy).toHaveBeenCalledWith("[lead confirmado]", {
-      phone: p,
-      name: null,
-      nss: "12345678901",
-      lead_id: "lead-1",
-    });
-
-    expect(leadsUpdateRows.some((u) => u.patch.saldo_subcuenta === 100000)).toBe(
-      true,
-    );
-    expect(leadsUpdateRows.some((u) => u.patch.monto_credito === 85000)).toBe(
-      true,
-    );
-
-    const ultimaActualizacion = leadsUpdateRows[leadsUpdateRows.length - 1];
-    expect(ultimaActualizacion.patch).toMatchObject({
-      nss: "12345678901",
-      horario: "Martes 10am",
-      estado: "nuevo",
-    });
+    expect(reply).toContain("importe neto estimado para tu crédito Mejoravit");
+    expect(reply).toContain("💰 $90,000");
+    expect(reply).toContain("sujeta a validación");
+    expect(reply).toContain("¿Te gustaría continuar?");
+    expect(reply).not.toMatch(/asesor|horario|contactar|llamar/i);
+    expect(conversationMemory.get(p)?.state).toBe("tramite_mejoravit");
+    expect(logSpy).toHaveBeenCalledWith("[lead confirmado]", { lead_id: "lead-1" });
 
     logSpy.mockRestore();
   });
 
-  it("consulta scraper y muestra monto exacto al cerrar el flujo", async () => {
+  it("aplica el tope de $169,000 antes del 90%: saldo mayor al tope ofrece $152,100", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({ califica: true, datos: { saldoSubcuenta: "250,000.00" } }),
+          { status: 200 },
+        ),
+      ),
+    );
     const p = "5233333333333";
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
+    await llegarANss(p);
 
-    const replyNss = await procesarYEvolucionar({
-      phone: p,
-      textoUsuario: "09876543210",
+    const replyNss = await procesarYEvolucionar({ phone: p, textoUsuario: "09876543210" });
+
+    expect(replyNss).toContain("💰 $152,100");
+    expect(leadsById.get("lead-1")?.saldo_subcuenta).toBe("250,000.00");
+    expect(leadsById.get("lead-1")?.tramite_mejoravit).toMatchObject({
+      credito: { montoBase: 250000, montoTopado: 169000, montoNetoEstimado: 152100 },
     });
-
-    expect(replyNss).toContain("Tu monto autorizado es:");
-    expect(replyNss).toContain("$100,000");
-    expect(replyNss).toContain("¿Te podemos contactar ahorita mismo");
-    expect(conversationMemory.get(p)?.state).toBe("esperando_horario");
-
-    const replyHorario = await procesarYEvolucionar({
-      phone: p,
-      textoUsuario: "Martes 10am",
-    });
-
-    expect(replyHorario).toContain("Listo, un asesor te contactará Martes 10am");
-    expect(replyHorario).toContain("8140100246");
-    expect(conversationMemory.get(p)?.state).toBe("finalizado");
   });
 
   it("respuesta sin datos válidos: avisa problema temporal sin volver a pedir el NSS", async () => {
@@ -448,8 +458,8 @@ describe("botSteps memoria Map", () => {
       disponible = true;
       const reply = await procesarYEvolucionar({ phone: p, textoUsuario: "ya?" });
 
-      expect(reply).toContain("Tu monto autorizado es:");
-      expect(conversationMemory.get(p)?.state).toBe("esperando_horario");
+      expect(reply).toContain("importe neto estimado");
+      expect(conversationMemory.get(p)?.state).toBe("tramite_mejoravit");
       expect(llamadas).toHaveLength(2);
       expect(JSON.parse(llamadas[1]).nss).toBe(NSS);
     });
@@ -575,12 +585,8 @@ describe("botSteps memoria Map", () => {
       textoUsuario: "01234567890",
     });
 
-    expect(replyNss).toContain("Tu monto autorizado es:");
-    expect(replyNss).toContain("$100,000");
-    expect(conversationMemory.get(p)?.state).toBe("esperando_horario");
-
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Martes 10am" });
-    expect(conversationMemory.get(p)?.state).toBe("finalizado");
+    expect(replyNss).toContain("💰 $90,000");
+    expect(conversationMemory.get(p)?.state).toBe("tramite_mejoravit");
   });
 
   it("rechaza NSS cuando trae más de 11 dígitos", async () => {
@@ -600,35 +606,17 @@ describe("botSteps memoria Map", () => {
     expect(conversationMemory.get(p)?.nss).toBeNull();
   });
 
-  it("con NSS guardado no pide NSS de nuevo al capturar horario", async () => {
-    const p = "5212121212121";
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "No" });
-    await procesarYEvolucionar({ phone: p, textoUsuario: "12345678901" });
-
-    expect(conversationMemory.get(p)?.state).toBe("esperando_horario");
-
-    const reply = await procesarYEvolucionar({
-      phone: p,
-      textoUsuario: "Mañana a las 11am",
-    });
-
-    expect(reply).not.toContain("Compárteme tu Número de Seguro Social");
-    expect(reply).toContain("Tu monto autorizado es:");
-    expect(reply).toContain("Listo, un asesor te contactará Mañana a las 11am");
-    expect(conversationMemory.get(p)?.state).toBe("finalizado");
-  });
-
-  it("con NSS solo en lead finaliza con monto al capturar horario", async () => {
+  it("conversación antigua en esperando_horario con saldo guardado: pasa al trámite sin repetir la consulta", async () => {
     const p = "5213131313131";
     await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockClear();
 
     conversationsStore.set(p, {
       state: "esperando_horario",
       nss: null,
       lead_id: "lead-1",
+      data: { nss: "43119209344", horario: "" },
     });
     leadsById.set("lead-1", {
       id: "lead-1",
@@ -636,6 +624,8 @@ describe("botSteps memoria Map", () => {
       estado: "nuevo",
       nss: "43119209344",
       horario: "",
+      saldo_subcuenta: "200,000.00",
+      monto_base: 200000,
     });
 
     const reply = await procesarYEvolucionar({
@@ -643,9 +633,47 @@ describe("botSteps memoria Map", () => {
       textoUsuario: "Mañana a las 11am",
     });
 
-    expect(reply).not.toContain("Compárteme tu Número de Seguro Social");
-    expect(reply).toContain("Tu monto autorizado es:");
-    expect(conversationMemory.get(p)?.state).toBe("finalizado");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/precalificar"))).toBe(false);
+    expect(reply).toContain("$152,100");
+    expect(reply).not.toMatch(/asesor/i);
+    expect(reply).not.toMatch(/horario/i);
+    expect(conversationMemory.get(p)?.state).toBe("tramite_mejoravit");
+    expect(conversationMemory.get(p)?.data).toMatchObject({ horario: "", nss: "43119209344" });
+    const lead = leadsById.get("lead-1");
+    expect(lead?.precalificacion_resultado).toBeUndefined();
+    expect(lead?.saldo_subcuenta).toBe("200,000.00");
+    expect(lead?.tramite_mejoravit).toMatchObject({
+      etapa: "oferta",
+      credito: { montoNetoEstimado: 152100 },
+      datos: { nss: { valor: "43119209344" } },
+    });
+  });
+
+  it("conversación antigua en esperando_horario con saldo de otro NSS: consulta en lugar de reutilizarlo", async () => {
+    const p = "5213131313132";
+    await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockClear();
+
+    conversationsStore.set(p, {
+      state: "esperando_horario",
+      nss: null,
+      lead_id: "lead-1",
+      data: { nss: "43119209344" },
+    });
+    leadsById.set("lead-1", {
+      id: "lead-1",
+      whatsapp_phone: p,
+      estado: "nuevo",
+      nss: "11111111111",
+      saldo_subcuenta: "200,000.00",
+    });
+
+    const reply = await procesarYEvolucionar({ phone: p, textoUsuario: "Mañana a las 11am" });
+
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/precalificar"))).toHaveLength(1);
+    expect(reply).toContain("$90,000");
+    expect(conversationMemory.get(p)?.state).toBe("tramite_mejoravit");
   });
 
   it("sin NSS guardado pide NSS después de capturar horario", async () => {
@@ -682,6 +710,164 @@ describe("botSteps memoria Map", () => {
     const reply = await procesarYEvolucionar({ phone: p, textoUsuario: "Sí" });
 
     expect(reply).toContain("no aplica si ya tienes un crédito Infonavit activo");
+  });
+
+  describe("trámite Mejoravit por WhatsApp", () => {
+    const NSS = "12345678901";
+
+    function scraperContado() {
+      const llamadas: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (String(input).includes("/precalificar")) {
+            llamadas.push(String(init?.body ?? ""));
+            return new Response(
+              JSON.stringify({
+                califica: true,
+                nss: NSS,
+                nombre: "JUAN CARLOS PEREZ LOPEZ",
+                empresa: "ACME SA DE CV",
+                registroPatronal: "A1234567890",
+                datos: { saldoSubcuenta: "100000", montoCredito: "85000" },
+              }),
+              { status: 200 },
+            );
+          }
+          return new Response("{}", { status: 200 });
+        }),
+      );
+      return llamadas;
+    }
+
+    const tramiteDe = (leadId: string) =>
+      leadsById.get(leadId)?.tramite_mejoravit as TramiteMejoravit | undefined;
+
+    beforeEach(() => {
+      vi.spyOn(console, "log").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("acepta, consiente y captura por el chat; el avance vive en leads.tramite_mejoravit", async () => {
+      scraperContado();
+      const p = "5217000000001";
+      const enviar = (texto: string) => procesarYEvolucionar({ phone: p, textoUsuario: texto });
+      await llegarANss(p);
+      await enviar(NSS);
+
+      expect(await enviar("Sí, me interesa")).toContain("/privacidad");
+      expect(await enviar("Sí, autorizo")).toContain("¿Cuál es tu nombre");
+      await enviar("Juan Carlos");
+      expect(await enviar("Pérez")).toContain("apellido materno");
+
+      expect(conversationMemory.get(p)?.state).toBe("tramite_mejoravit");
+      const tramite = tramiteDe("lead-1")!;
+      expect(tramite.consentimiento?.aceptado).toBe(true);
+      expect(tramite.datos.nombres?.valor).toBe("Juan Carlos");
+      expect(tramite.datos.apellido_paterno?.valor).toBe("Pérez");
+      expect(tramite.datos.celular).toMatchObject({ valor: "7000000001", procedencia: "whatsapp" });
+      expect(tramite.datos.empresa).toMatchObject({ valor: "ACME SA DE CV", procedencia: "precalificacion" });
+      expect(tramite.datos.registro_patronal?.valor).toBe("A1234567890");
+      expect(tramite.version).toBe(5);
+      expect(leadsById.get("lead-1")).toMatchObject({
+        estado: "nuevo",
+        horario: "",
+        nombre_infonavit: "JUAN CARLOS PEREZ LOPEZ",
+      });
+    });
+
+    it("'no me interesa' dentro del trámite no marca no_interesado ni borra el avance", async () => {
+      scraperContado();
+      const p = "5217000000002";
+      await llegarANss(p);
+      await procesarYEvolucionar({ phone: p, textoUsuario: NSS });
+
+      const reply = await procesarYEvolucionar({ phone: p, textoUsuario: "no me interesa" });
+
+      expect(reply).toBe(MSG_RECHAZO_OFERTA);
+      expect(conversationMemory.get(p)?.state).toBe("tramite_mejoravit");
+      expect(leadsById.get("lead-1")?.estado).toBe("nuevo");
+      expect(tramiteDe("lead-1")?.etapa).toBe("rechazado");
+    });
+
+    it("reiniciar y volver a dar el mismo NSS reutiliza la precalificación y conserva lo capturado", async () => {
+      const llamadas = scraperContado();
+      const p = "5217000000003";
+      const enviar = (texto: string) => procesarYEvolucionar({ phone: p, textoUsuario: texto });
+      await llegarANss(p);
+      await enviar(NSS);
+      await enviar("sí");
+      await enviar("sí");
+      await enviar("Juan Carlos");
+
+      await enviar("reiniciar");
+      expect(conversationMemory.get(p)?.state).toBe("esperando_labor_vigente");
+      for (const texto of ["Sí", "Sí", "No"]) await enviar(texto);
+      expect(await enviar(NSS)).toContain("💰 $90,000");
+
+      expect(llamadas).toHaveLength(1);
+      const retomo = await enviar("sí");
+      expect(retomo).toContain("apellido paterno");
+      expect(retomo).not.toContain("¿Autorizas");
+      expect(tramiteDe("lead-1")?.datos.nombres?.valor).toBe("Juan Carlos");
+    });
+
+    it("no lanza una segunda consulta al scraper mientras la primera sigue en curso", async () => {
+      const llamadas = scraperContado();
+      const p = "5217000000004";
+      await llegarANss(p);
+      const conv = conversationsStore.get(p)!;
+      conversationsStore.set(p, {
+        ...conv,
+        data: { nssPendiente: NSS, consultaIniciadaAt: new Date().toISOString() },
+      });
+
+      const reply = await procesarYEvolucionar({ phone: p, textoUsuario: NSS });
+
+      expect(reply).toBe(MSG_CONSULTA_EN_CURSO);
+      expect(llamadas).toHaveLength(0);
+      expect(conversationMemory.get(p)?.state).toBe("esperando_datos");
+    });
+
+    it("una consulta 'en curso' vencida (instancia caída) sí se reintenta", async () => {
+      const llamadas = scraperContado();
+      const p = "5217000000005";
+      await llegarANss(p);
+      const conv = conversationsStore.get(p)!;
+      conversationsStore.set(p, {
+        ...conv,
+        data: {
+          nssPendiente: NSS,
+          consultaIniciadaAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+        },
+      });
+
+      const reply = await procesarYEvolucionar({ phone: p, textoUsuario: "ya?" });
+
+      expect(reply).toContain("importe neto estimado");
+      expect(llamadas).toHaveLength(1);
+    });
+
+    it("Compra de Casa no entra al trámite Mejoravit", async () => {
+      const llamadas = scraperContado();
+      const p = "5217000000006";
+      conversationsStore.set(p, {
+        state: "inicio",
+        nss: null,
+        lead_id: null,
+        producto: "compra_casa",
+        data: {},
+      });
+
+      const reply = await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+
+      expect(reply).not.toContain("importe neto");
+      expect(conversationsStore.get(p)?.state).not.toBe("tramite_mejoravit");
+      expect(llamadas).toHaveLength(0);
+    });
   });
 
   describe("comando de producto en el número 8114118767", () => {

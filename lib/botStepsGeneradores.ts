@@ -358,9 +358,7 @@ export async function aplicarFechaContactoInterpretada(
       fecha_contacto_origen,
     });
     if (!ok) {
-      console.error("[generadores] Error guardando fecha_contacto interpretada:", {
-        phone,
-      });
+      console.error("[generadores] Error guardando fecha_contacto interpretada");
     }
   } catch (err) {
     console.error("[generadores] interpretarHorarioContacto:", err);
@@ -675,7 +673,7 @@ export async function procesarYEvolucionarGeneradores(args: {
     nota,
   });
   if (!ok) {
-    console.error("[generadores] Error actualizando lead:", { phone });
+    console.error("[generadores] Error actualizando lead");
   }
 
   await esperarInterpretacionConTimeout(phone, horarioFinal);
