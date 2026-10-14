@@ -6,6 +6,11 @@ const mocks = vi.hoisted(() => ({
   setConversation: vi.fn(),
   deleteConversation: vi.fn(),
   limpiarHistorialClaude: vi.fn(),
+  sincronizarProductoLead: vi.fn(),
+}));
+
+vi.mock("@/lib/productoLead", () => ({
+  sincronizarProductoLead: mocks.sincronizarProductoLead,
 }));
 
 vi.mock("@/lib/conversationMemory", () => ({
@@ -24,7 +29,7 @@ import {
   detectarComandoProducto,
   esNumeroConComandoProducto,
 } from "@/lib/comandoProducto";
-import { COMPRA_CASA_PHONE_NUMBER_ID } from "@/lib/detectarProducto";
+import { NUMERO_COMPARTIDO_PHONE_NUMBER_ID } from "@/lib/detectarProducto";
 
 describe("detectarComandoProducto", () => {
   it.each([
@@ -59,8 +64,8 @@ describe("detectarComandoProducto", () => {
 
 describe("esNumeroConComandoProducto", () => {
   it("solo acepta el phone_number_id del número 8114118767", () => {
-    expect(esNumeroConComandoProducto(COMPRA_CASA_PHONE_NUMBER_ID)).toBe(true);
-    expect(esNumeroConComandoProducto(` ${COMPRA_CASA_PHONE_NUMBER_ID} `)).toBe(true);
+    expect(esNumeroConComandoProducto(NUMERO_COMPARTIDO_PHONE_NUMBER_ID)).toBe(true);
+    expect(esNumeroConComandoProducto(` ${NUMERO_COMPARTIDO_PHONE_NUMBER_ID} `)).toBe(true);
     expect(esNumeroConComandoProducto("999999999999999")).toBe(false);
     expect(esNumeroConComandoProducto(null)).toBe(false);
     expect(esNumeroConComandoProducto(undefined)).toBe(false);
@@ -99,6 +104,7 @@ describe("aplicarComandoProducto", () => {
     expect(mocks.deleteConversation).not.toHaveBeenCalled();
     expect(mocks.setConversation).not.toHaveBeenCalled();
     expect(mocks.limpiarHistorialClaude).toHaveBeenCalledWith("5215550000000");
+    expect(mocks.sincronizarProductoLead).toHaveBeenCalledWith("lead-1", "mejoravit", "comando");
   });
 
   it("Mejoravit → casas: limpia el NSS y el estado del flujo anterior", async () => {
@@ -123,6 +129,7 @@ describe("aplicarComandoProducto", () => {
       producto: "compra_casa",
       data: { productoForzado: "compra_casa" },
     });
+    expect(mocks.sincronizarProductoLead).toHaveBeenCalledWith("lead-2", "compra_casa", "comando");
   });
 
   it("sin lead_id al momento del comando: guarda el producto con lead_id null", async () => {
@@ -142,5 +149,6 @@ describe("aplicarComandoProducto", () => {
       producto: "mejoravit",
       data: { productoForzado: "mejoravit" },
     });
+    expect(mocks.sincronizarProductoLead).not.toHaveBeenCalled();
   });
 });

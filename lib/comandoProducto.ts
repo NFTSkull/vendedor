@@ -4,10 +4,11 @@ import {
   reemplazarConversacion,
 } from "@/lib/conversationMemory";
 import {
-  COMPRA_CASA_PHONE_NUMBER_ID,
+  NUMERO_COMPARTIDO_PHONE_NUMBER_ID,
   type ProductoForzado,
 } from "@/lib/detectarProducto";
 import { normalizarTexto } from "@/lib/normalizeText";
+import { sincronizarProductoLead } from "@/lib/productoLead";
 
 const REGEX_COMANDO =
   /^(?:activa|activar|activame|modo|(?:cambia|cambiar|cambiame|cambiate|pasa|pasar)\s+al?)\s+(?:(?:el|al)\s+)?(?:(?:flujo|modo)\s+)?(?:de\s+)?(mejoravit|casas?|compra de casas?)$/;
@@ -22,7 +23,7 @@ const MSG_CONFIRMACION: Record<ProductoForzado, string> = {
 export function esNumeroConComandoProducto(
   phoneNumberId: string | null | undefined,
 ): boolean {
-  return phoneNumberId?.trim() === COMPRA_CASA_PHONE_NUMBER_ID;
+  return phoneNumberId?.trim() === NUMERO_COMPARTIDO_PHONE_NUMBER_ID;
 }
 
 /** Solo reconoce el mensaje completo como comando, para no dispararse dentro de frases normales. */
@@ -48,6 +49,9 @@ export async function aplicarComandoProducto(
     producto,
     data: { productoForzado: producto },
   });
+  if (conv.lead_id) {
+    await sincronizarProductoLead(conv.lead_id, producto, "comando");
+  }
   limpiarHistorialClaude(phone);
   return MSG_CONFIRMACION[producto];
 }

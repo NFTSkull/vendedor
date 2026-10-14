@@ -1,5 +1,38 @@
 # Changelog
 
+## [Sin versión semver] — 2026-10-14 (número compartido: clasificación, asesor por defecto y pestaña Compra de Casa)
+
+### Cambio actual
+
+- **Clasificación del número 8114118767 (`phone_number_id` 1177472778778882)** (`lib/detectarProducto.ts`). Ya no manda todo a Compra de Casa. Cascada:
+  1. Texto del anuncio de Meta (`messages[].referral`: `headline`, `body`, `source_url`), validado con Zod en `lib/parseWhatsAppWebhook.ts`.
+  2. Palabras clave estrictas del primer mensaje:
+     - Mejoravit: "mejoravit", "nss", "crédito (de/del) infonavit", "préstamo".
+     - Compra de Casa: "vender", "vendo mi casa/propiedad/depa", "venta de mi casa/propiedad/depa".
+     - Generadores: "generador(es)", "vacante(s)".
+     - "Infonavit" suelto no cuenta.
+  3. Si no hay coincidencia o hay más de un producto, el lead queda `sin_clasificar`.
+- **Menú para `sin_clasificar`** (`lib/menuProducto.ts`): el bot responde "¿En qué te podemos ayudar? 1) Crédito Mejoravit (Infonavit) 2) Vender tu casa".
+  - Se acepta "1"/"2", "uno"/"dos", "opción 1", "la segunda" o el texto de la opción.
+  - Al elegir, se fija el producto en la conversación y en el lead, y arranca el flujo correspondiente.
+  - Una respuesta no reconocida reenvía el menú.
+- **`leads.producto` sincronizado** (`lib/productoLead.ts`) cuando cambia el producto de la conversación:
+  - por el comando "activa mejoravit/casas";
+  - por el menú;
+  - al ligar un lead existente con un primer mensaje clasificado.
+- **Asesor por defecto** (`lib/asignacionAsesor.ts`):
+  - Leads nuevos o recién clasificados como Mejoravit o Compra de Casa reciben `DEFAULT_ADVISOR_MEJORAVIT` / `DEFAULT_ADVISOR_COMPRA_CASA` (Guillermo si no están configuradas).
+  - Solo se asigna si `advisor_id` es nulo.
+  - El prefijo G-/B- tiene prioridad.
+  - Generadores, Paneles y `sin_clasificar` no se asignan.
+- **Historial:** `lead_actions` registra `cambio_producto_automatico` y `asesor_asignado_automatico`, con `advisor_id` nulo y el detalle en `nota`.
+- **CRM:**
+  - Pestaña "Compra de Casa" (🔑) en Leads y Agenda.
+  - Ícono 🔑 en el detalle del lead.
+  - El botón regresar del detalle vuelve a Compra de Casa en lugar de Generadores.
+- **Agenda:** un lead de Compra de Casa `contactado` sin `fecha_contacto` aparece en "Sin agendar" en vez de desaparecer.
+- **Constantes:** `MEJORAVIT_PHONE_NUMBER_ID` y `COMPRA_CASA_PHONE_NUMBER_ID` se reemplazan por `NUMERO_COMPARTIDO_PHONE_NUMBER_ID`.
+
 ## [Sin versión semver] — 2026-10-13 (recordatorios para leads contactados por el bot)
 
 ### Cambio actual

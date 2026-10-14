@@ -5,19 +5,25 @@ export type ProductoLead =
   | "compra_casa"
   | "sin_clasificar";
 
-/** Número bot principal Mejoravit (+52 81 1411 8767) */
-export const MEJORAVIT_PHONE_NUMBER_ID = "1177472778778882";
+/**
+ * Número bot principal (+52 81 1411 8767). Atiende Mejoravit, Compra de Casa y Generadores:
+ * el producto lo decide el anuncio o el primer mensaje, no el número.
+ */
+export const NUMERO_COMPARTIDO_PHONE_NUMBER_ID = "1177472778778882";
 
 /** Placeholder hasta confirmar phone_number_id de Energrum */
 export const ENERGRUM_PHONE_NUMBER_ID = "ENERGRUM_PENDING";
 
-// === Número Mejoravit reutilizado para Compra de Casa (antes redirigido a Generadores) ===
-// Para revertir a Mejoravit: borra la constante y el bloque if asociado.
-export const COMPRA_CASA_PHONE_NUMBER_ID = "1177472778778882";
-
 export type ProductoForzado = Extract<ProductoLead, "mejoravit" | "compra_casa">;
 
-/** Producto fijado por comando en `conversations.data.productoForzado`; tiene prioridad sobre el routing por número. */
+/** Datos del anuncio de Meta (click-to-WhatsApp) que llegan en `messages[].referral`. */
+export type ReferralAnuncio = {
+  headline?: string | null;
+  body?: string | null;
+  sourceUrl?: string | null;
+};
+
+/** Producto fijado por comando en `conversations.data.productoForzado`; tiene prioridad sobre la clasificación automática. */
 export function productoForzadoDe(
   data: Record<string, unknown> | undefined,
 ): ProductoForzado | null {
@@ -46,23 +52,96 @@ function clasificarMensajeEnergrum(primerMensaje: string): ProductoLead {
   return "sin_clasificar";
 }
 
+type ProductoNumeroCompartido = Extract<
+  ProductoLead,
+  "mejoravit" | "compra_casa" | "generadores"
+>;
+
+type ReglasPalabras = Record<ProductoNumeroCompartido, RegExp[]>;
+
 /**
- * Asigna producto al crear un lead. Solo debe invocarse una vez por lead nuevo.
+ * Frases estrictas del primer mensaje. "infonavit" suelto no cuenta: aparece en nombres de
+ * colonias ("Infonavit Las Puentes") de clientes que vienen por otro producto.
+ */
+const PALABRAS_PRIMER_MENSAJE: ReglasPalabras = {
+  mejoravit: [
+    /\bmejoravit\b/,
+    /\bnss\b/,
+    /\bcredito (?:de |del )?infonavit\b/,
+    /\bprestamos?\b/,
+  ],
+  compra_casa: [
+    /\bvender\b/,
+    /\bvendo mi (?:casa|propiedad|depa|departamento)\b/,
+    /\bventa de mi (?:casa|propiedad|depa|departamento)\b/,
+  ],
+  generadores: [/\bgeneradore?s?\b/, /\bvacantes?\b/],
+};
+
+/** El texto del anuncio lo redacta el negocio, por eso admite términos más amplios. */
+const PALABRAS_ANUNCIO: ReglasPalabras = {
+  mejoravit: [...PALABRAS_PRIMER_MENSAJE.mejoravit, /\binfonavit\b/],
+  compra_casa: [
+    ...PALABRAS_PRIMER_MENSAJE.compra_casa,
+    /\bvende\b/,
+    /\bventa\b/,
+    /\bcompramos tu (?:casa|propiedad)\b/,
+  ],
+  generadores: PALABRAS_PRIMER_MENSAJE.generadores,
+};
+
+function normalizarParaPalabras(texto: string): string {
+  return normalizarTexto(texto)
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/** Un solo producto con coincidencia → ese producto; ninguno o varios → null (ambiguo). */
+function productoPorPalabras(
+  texto: string,
+  reglas: ReglasPalabras,
+): ProductoNumeroCompartido | null {
+  const normalizado = normalizarParaPalabras(texto);
+  if (!normalizado) return null;
+  const coincidencias = (Object.keys(reglas) as ProductoNumeroCompartido[]).filter(
+    (producto) => reglas[producto].some((regla) => regla.test(normalizado)),
+  );
+  return coincidencias.length === 1 ? coincidencias[0] : null;
+}
+
+/** Cascada del número compartido: anuncio de Meta → palabras clave del mensaje → sin_clasificar. */
+export function clasificarNumeroCompartido(args: {
+  primerMensaje: string;
+  referral?: ReferralAnuncio | null;
+}): ProductoLead {
+  const referral = args.referral;
+  if (referral) {
+    const textoAnuncio = [referral.headline, referral.body, referral.sourceUrl]
+      .filter((parte): parte is string => typeof parte === "string")
+      .join(" ");
+    const porAnuncio = productoPorPalabras(textoAnuncio, PALABRAS_ANUNCIO);
+    if (porAnuncio) return porAnuncio;
+  }
+
+  return productoPorPalabras(args.primerMensaje, PALABRAS_PRIMER_MENSAJE) ?? "sin_clasificar";
+}
+
+/**
+ * Asigna producto al crear o ligar un lead.
  * phoneNumberId desconocido → mejoravit (fallback seguro).
  */
 export function detectarProducto(args: {
   phoneNumberId: string;
   primerMensaje: string;
+  referral?: ReferralAnuncio | null;
 }): ProductoLead {
   const phoneNumberId = args.phoneNumberId.trim();
 
-  // Número reutilizado — borrar este bloque para devolver el número a Mejoravit
-  if (phoneNumberId === COMPRA_CASA_PHONE_NUMBER_ID) {
-    return "compra_casa";
-  }
-
-  if (phoneNumberId === MEJORAVIT_PHONE_NUMBER_ID) {
-    return "mejoravit";
+  if (phoneNumberId === NUMERO_COMPARTIDO_PHONE_NUMBER_ID) {
+    return clasificarNumeroCompartido({
+      primerMensaje: args.primerMensaje,
+      referral: args.referral,
+    });
   }
 
   if (phoneNumberId === ENERGRUM_PHONE_NUMBER_ID) {

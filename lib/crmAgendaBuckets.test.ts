@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  agruparLeadsEnAgenda,
   clasificarLeadEnBucket,
   endOfCurrentWeekSunday,
   startOfZonedDay,
@@ -93,6 +94,27 @@ describe("clasificarLeadEnBucket", () => {
     expect(clasificarLeadEnBucket(null, "contactado", AHORA_JUEVES_4PM)).toBeNull();
   });
 
+  it("Compra de Casa contactado sin fecha → sin_agendar (no desaparece de la agenda)", () => {
+    expect(
+      clasificarLeadEnBucket(null, "contactado", AHORA_JUEVES_4PM, "compra_casa"),
+    ).toBe("sin_agendar");
+  });
+
+  it.each(["mejoravit", "generadores", "paneles", null])(
+    "%s contactado sin fecha → sigue excluido",
+    (producto) => {
+      expect(
+        clasificarLeadEnBucket(null, "contactado", AHORA_JUEVES_4PM, producto),
+      ).toBeNull();
+    },
+  );
+
+  it("Compra de Casa no_interesado sin fecha → excluido", () => {
+    expect(
+      clasificarLeadEnBucket(null, "no_interesado", AHORA_JUEVES_4PM, "compra_casa"),
+    ).toBeNull();
+  });
+
   it("lead más allá del domingo de la semana → futuros", () => {
     const weekEnd = endOfCurrentWeekSunday(AHORA_JUEVES_4PM);
     const beyond = new Date(weekEnd.getTime() + 86_400_000).toISOString();
@@ -109,6 +131,26 @@ describe("clasificarLeadEnBucket", () => {
         AHORA_JUEVES_4PM,
       ),
     ).toBeNull();
+  });
+});
+
+describe("agruparLeadsEnAgenda", () => {
+  it("pone en sin_agendar al lead de Compra de Casa contactado sin fecha", () => {
+    const base = {
+      whatsapp_phone: "5215550000000",
+      fecha_contacto: null,
+      created_at: "2026-06-18T15:00:00.000Z",
+    };
+    const agenda = agruparLeadsEnAgenda(
+      [
+        { ...base, id: "casa", producto: "compra_casa", estado: "contactado" },
+        { ...base, id: "mv", producto: "mejoravit", estado: "contactado" },
+      ],
+      AHORA_JUEVES_4PM,
+    );
+
+    expect(agenda.sin_agendar.map((l) => l.id)).toEqual(["casa"]);
+    expect(agenda.counts.sin_agendar).toBe(1);
   });
 });
 

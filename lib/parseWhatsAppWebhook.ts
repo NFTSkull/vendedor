@@ -1,3 +1,7 @@
+import { z } from "zod";
+
+import type { ReferralAnuncio } from "@/lib/detectarProducto";
+
 /** Mensaje de texto entrante normalizado desde el webhook de Meta */
 export interface WhatsAppTextInbound {
   from: string;
@@ -5,6 +9,28 @@ export interface WhatsAppTextInbound {
   wamid: string | null;
   /** metadata.phone_number_id del change que originó el mensaje */
   phoneNumberId: string | null;
+  /** Solo presente cuando el cliente llegó desde un anuncio click-to-WhatsApp */
+  referral?: ReferralAnuncio;
+}
+
+const textoOpcional = z.string().trim().max(2000).optional().catch(undefined);
+
+const referralSchema = z.object({
+  headline: textoOpcional,
+  body: textoOpcional,
+  source_url: textoOpcional,
+});
+
+function extraerReferral(raw: unknown): ReferralAnuncio | undefined {
+  const parsed = referralSchema.safeParse(raw);
+  if (!parsed.success) return undefined;
+  const { headline, body, source_url } = parsed.data;
+  if (!headline && !body && !source_url) return undefined;
+  return {
+    headline: headline || null,
+    body: body || null,
+    sourceUrl: source_url || null,
+  };
 }
 
 function extraerPhoneNumberIdDeValue(value: Record<string, unknown>): string | null {
@@ -34,7 +60,14 @@ function recolectarValor(
     const body = (text as Record<string, unknown>).body;
     if (typeof body !== "string" || !body.trim()) continue;
     const wamid = typeof m.id === "string" ? m.id : null;
-    out.push({ from: from.trim(), body: body.trim(), wamid, phoneNumberId });
+    const referral = extraerReferral(m.referral);
+    out.push({
+      from: from.trim(),
+      body: body.trim(),
+      wamid,
+      phoneNumberId,
+      ...(referral ? { referral } : {}),
+    });
   }
   return out;
 }

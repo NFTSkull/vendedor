@@ -120,15 +120,21 @@ export function endOfCurrentWeekSunday(ahora: Date, timeZone = MX_TZ): Date {
   return endOfZonedDay(sunday, timeZone);
 }
 
+/**
+ * Compra de Casa no tiene bot que agende `fecha_contacto`: un lead contactado sin fecha sigue
+ * pendiente y debe verse en "Sin agendar" en vez de desaparecer de la agenda.
+ */
 export function clasificarLeadEnBucket(
   fecha_contacto: string | null,
   estado: string,
   ahora: Date,
+  producto?: string | null,
 ): AgendaBucket | null {
   if (estado === "no_interesado") return null;
 
   if (!fecha_contacto) {
     if (estado === "nuevo") return "sin_agendar";
+    if (estado === "contactado" && producto === "compra_casa") return "sin_agendar";
     return null;
   }
 
@@ -206,7 +212,12 @@ export function agruparLeadsEnAgenda(
   };
 
   for (const lead of leads) {
-    const bucket = clasificarLeadEnBucket(lead.fecha_contacto, lead.estado, ahora);
+    const bucket = clasificarLeadEnBucket(
+      lead.fecha_contacto,
+      lead.estado,
+      ahora,
+      lead.producto,
+    );
     if (!bucket) continue;
     buckets[bucket].push(lead);
   }

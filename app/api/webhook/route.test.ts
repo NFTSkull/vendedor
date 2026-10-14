@@ -99,7 +99,7 @@ vi.mock("@/lib/supabaseAdmin", () => ({
 import { POST } from "@/app/api/webhook/route";
 import {
   ADVISOR_ID_ADMIN,
-  COMPRA_CASA_PHONE_NUMBER_ID,
+  NUMERO_COMPARTIDO_PHONE_NUMBER_ID,
 } from "@/lib/detectarProducto";
 
 const MSG_CONFIRMACION_MEJORAVIT =
@@ -155,6 +155,23 @@ describe("POST /api/webhook", () => {
     vi.clearAllMocks();
   });
 
+  it("pasa el anuncio de Meta (referral) a ensureLeadProvisional para clasificar el lead", async () => {
+    const referral = { headline: "Crédito Mejoravit", body: null, sourceUrl: null };
+    mocks.extraerTextosEntrantes.mockReturnValue([
+      { from: "5215550000000", body: "Hola", wamid: "wamid.ref", phoneNumberId: null, referral },
+    ]);
+
+    const res = await postWebhook();
+
+    expect(res.status).toBe(200);
+    expect(mocks.ensureLeadProvisional).toHaveBeenCalledWith("5215550000000", {
+      phoneNumberId: "phone-id",
+      primerMensaje: "Hola",
+      advisorId: null,
+      referral,
+    });
+  });
+
   it("guarda mensaje entrante usando lead_id de la conversación", async () => {
     const req = new Request("http://localhost/api/webhook", {
       method: "POST",
@@ -168,6 +185,7 @@ describe("POST /api/webhook", () => {
       phoneNumberId: "phone-id",
       primerMensaje: "Hola",
       advisorId: null,
+      referral: null,
     });
     expect(mocks.guardarMensaje).toHaveBeenCalledWith({
       leadId: "lead-1",
@@ -472,7 +490,7 @@ describe("POST /api/webhook", () => {
           from: "5215550000000",
           body: "Activa Mejoravit",
           wamid: "wamid.cmd.1",
-          phoneNumberId: COMPRA_CASA_PHONE_NUMBER_ID,
+          phoneNumberId: NUMERO_COMPARTIDO_PHONE_NUMBER_ID,
         },
       ]);
 
@@ -504,7 +522,7 @@ describe("POST /api/webhook", () => {
           from: "5215550000000",
           body: "activa compra de casa",
           wamid: "wamid.cmd.2",
-          phoneNumberId: COMPRA_CASA_PHONE_NUMBER_ID,
+          phoneNumberId: NUMERO_COMPARTIDO_PHONE_NUMBER_ID,
         },
       ]);
 
@@ -523,7 +541,7 @@ describe("POST /api/webhook", () => {
           from: "5218100000000",
           body: "activa mejoravit",
           wamid: "wamid.cmd.6",
-          phoneNumberId: COMPRA_CASA_PHONE_NUMBER_ID,
+          phoneNumberId: NUMERO_COMPARTIDO_PHONE_NUMBER_ID,
         },
       ]);
 
@@ -537,7 +555,7 @@ describe("POST /api/webhook", () => {
     });
 
     it("usa el phone_number_id de Meta, no el del entorno", async () => {
-      process.env.WHATSAPP_PHONE_NUMBER_ID = COMPRA_CASA_PHONE_NUMBER_ID;
+      process.env.WHATSAPP_PHONE_NUMBER_ID = NUMERO_COMPARTIDO_PHONE_NUMBER_ID;
       mocks.extraerTextosEntrantes.mockReturnValue([
         {
           from: "5215550000000",
@@ -578,7 +596,7 @@ describe("POST /api/webhook", () => {
           from: "5215550000000",
           body: "Hola, quiero vender mi casa",
           wamid: "wamid.cmd.4",
-          phoneNumberId: COMPRA_CASA_PHONE_NUMBER_ID,
+          phoneNumberId: NUMERO_COMPARTIDO_PHONE_NUMBER_ID,
         },
       ]);
 
@@ -597,7 +615,7 @@ describe("POST /api/webhook", () => {
           from: "5215550000000",
           body: "activa mejoravit",
           wamid: "wamid.cmd.5",
-          phoneNumberId: COMPRA_CASA_PHONE_NUMBER_ID,
+          phoneNumberId: NUMERO_COMPARTIDO_PHONE_NUMBER_ID,
         },
       ]);
       mocks.buscarLeadPorTelefono.mockResolvedValue({

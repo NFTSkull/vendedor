@@ -4,8 +4,12 @@ import { procesarYEvolucionar } from "@/lib/botSteps";
 import { MSG_CONSULTA_EN_CURSO, MSG_CONSULTA_NO_DISPONIBLE } from "@/lib/botStepsCore";
 import { aplicarComandoProducto } from "@/lib/comandoProducto";
 import { conversationMemory } from "@/lib/conversationMemory";
-import { COMPRA_CASA_PHONE_NUMBER_ID } from "@/lib/detectarProducto";
+import {
+  ADVISOR_ID_GUILLERMO,
+  NUMERO_COMPARTIDO_PHONE_NUMBER_ID,
+} from "@/lib/detectarProducto";
 import { ensureLeadProvisional } from "@/lib/leadProvisional";
+import { MSG_MENU_PRODUCTO } from "@/lib/menuProducto";
 import { MSG_RECHAZO_OFERTA, type TramiteMejoravit } from "@/lib/tramiteMejoravit";
 
 const conversationsStore = new Map<
@@ -22,6 +26,7 @@ const leadsById = new Map<string, Record<string, unknown>>();
 const leadsByPhone = new Map<string, string>();
 const leadsInsertRows: Array<Record<string, unknown>> = [];
 const leadsUpdateRows: Array<{ id: string; patch: Record<string, unknown> }> = [];
+const leadActionsRows: Array<Record<string, unknown>> = [];
 let leadCounter = 0;
 
 function makeLeadsSelect() {
@@ -180,6 +185,14 @@ vi.mock("@/lib/supabaseAdmin", () => ({
           }),
         };
       }
+      if (table === "lead_actions") {
+        return {
+          insert: async (row: Record<string, unknown>) => {
+            leadActionsRows.push(row);
+            return { error: null };
+          },
+        };
+      }
       return {};
     },
   }),
@@ -236,6 +249,7 @@ describe("botSteps memoria Map", () => {
     leadsByPhone.clear();
     leadsInsertRows.length = 0;
     leadsUpdateRows.length = 0;
+    leadActionsRows.length = 0;
     leadCounter = 0;
   });
 
@@ -872,7 +886,7 @@ describe("botSteps memoria Map", () => {
 
   describe("comando de producto en el número 8114118767", () => {
     beforeEach(() => {
-      vi.stubEnv("WHATSAPP_PHONE_NUMBER_ID", COMPRA_CASA_PHONE_NUMBER_ID);
+      vi.stubEnv("WHATSAPP_PHONE_NUMBER_ID", NUMERO_COMPARTIDO_PHONE_NUMBER_ID);
       vi.spyOn(console, "log").mockImplementation(() => {});
     });
 
@@ -883,7 +897,7 @@ describe("botSteps memoria Map", () => {
     /** Mismo orden que el webhook: liga/crea el lead y luego pasa el texto al bot. */
     async function mensajeEntrante(p: string, texto: string) {
       await ensureLeadProvisional(p, {
-        phoneNumberId: COMPRA_CASA_PHONE_NUMBER_ID,
+        phoneNumberId: NUMERO_COMPARTIDO_PHONE_NUMBER_ID,
         primerMensaje: texto,
       });
       return procesarYEvolucionar({ phone: p, textoUsuario: texto });
@@ -891,7 +905,9 @@ describe("botSteps memoria Map", () => {
 
     it("casas → Mejoravit: el siguiente mensaje entra al flujo Mejoravit desde el inicio", async () => {
       const p = "5216000000001";
-      expect(await mensajeEntrante(p, "Hola")).toBe("¿En qué municipio se encuentra?");
+      expect(await mensajeEntrante(p, "Quiero vender mi casa")).toBe(
+        "¿En qué municipio se encuentra?",
+      );
       await mensajeEntrante(p, "Apodaca");
       expect(conversationsStore.get(p)?.data?.casaStep).toBe("colonia");
 
@@ -906,6 +922,13 @@ describe("botSteps memoria Map", () => {
         lead_id: "lead-1",
         producto: "mejoravit",
         data: { productoForzado: "mejoravit" },
+      });
+      expect(leadsById.get("lead-1")?.producto).toBe("mejoravit");
+      expect(leadActionsRows).toContainEqual({
+        lead_id: "lead-1",
+        advisor_id: null,
+        accion: "cambio_producto_automatico",
+        nota: "comando: mejoravit",
       });
 
       const bienvenida = await mensajeEntrante(p, "Hola");
@@ -931,6 +954,62 @@ describe("botSteps memoria Map", () => {
       );
       expect(await mensajeEntrante(p, "Hola")).toBe("¿En qué municipio se encuentra?");
       expect(conversationsStore.get(p)?.producto).toBe("compra_casa");
+      expect(leadsById.get("lead-1")?.producto).toBe("compra_casa");
+    });
+
+    it("el comando sobre un lead sin asesor sincroniza el producto y asigna el asesor por defecto", async () => {
+      const p = "5216000000010";
+      await mensajeEntrante(p, "Hola");
+      expect(leadsById.get("lead-1")).toMatchObject({ producto: "sin_clasificar" });
+      expect(leadsById.get("lead-1")?.advisor_id).toBeUndefined();
+
+      await aplicarComandoProducto(p, "compra_casa");
+
+      expect(leadsById.get("lead-1")).toMatchObject({
+        producto: "compra_casa",
+        advisor_id: ADVISOR_ID_GUILLERMO,
+      });
+      expect(leadActionsRows).toEqual([
+        {
+          lead_id: "lead-1",
+          advisor_id: null,
+          accion: "cambio_producto_automatico",
+          nota: "comando: compra_casa",
+        },
+        {
+          lead_id: "lead-1",
+          advisor_id: null,
+          accion: "asesor_asignado_automatico",
+          nota: `compra_casa: ${ADVISOR_ID_GUILLERMO}`,
+        },
+      ]);
+    });
+
+    it("el comando no reemplaza un asesor ya asignado", async () => {
+      const p = "5216000000011";
+      leadsById.set("lead-con-asesor", {
+        id: "lead-con-asesor",
+        whatsapp_phone: p,
+        estado: "nuevo",
+        producto: "compra_casa",
+        advisor_id: "asesor-previo",
+      });
+      leadsByPhone.set(p, "lead-con-asesor");
+      conversationsStore.set(p, {
+        state: "inicio",
+        nss: null,
+        lead_id: "lead-con-asesor",
+        producto: "compra_casa",
+        data: {},
+      });
+
+      await aplicarComandoProducto(p, "mejoravit");
+
+      expect(leadsById.get("lead-con-asesor")).toMatchObject({
+        producto: "mejoravit",
+        advisor_id: "asesor-previo",
+      });
+      expect(leadActionsRows.map((r) => r.accion)).toEqual(["cambio_producto_automatico"]);
     });
 
     it("reiniciar después del comando conserva Mejoravit y el lead_id en una sola escritura", async () => {
@@ -967,7 +1046,10 @@ describe("botSteps memoria Map", () => {
         lead_id: "lead-1",
         producto: "mejoravit",
       });
-      expect(leadsInsertRows[0]).toMatchObject({ producto: "compra_casa" });
+      expect(leadsInsertRows[0]).toMatchObject({
+        producto: "mejoravit",
+        advisor_id: ADVISOR_ID_GUILLERMO,
+      });
     });
 
     it("comando sin lead_id con lead previo: lo liga sin deshacer el producto", async () => {
@@ -987,13 +1069,140 @@ describe("botSteps memoria Map", () => {
       expect(leadsInsertRows).toHaveLength(0);
     });
 
-    it("sin comando, un lead nuevo en el número sigue entrando a casas", async () => {
+    it("sin comando, 'quiero vender mi casa' entra directo a casas con asesor por defecto", async () => {
       const p = "5216000000006";
 
-      expect(await mensajeEntrante(p, "Hola")).toBe("¿En qué municipio se encuentra?");
+      expect(await mensajeEntrante(p, "Hola, quiero vender mi casa")).toBe(
+        "¿En qué municipio se encuentra?",
+      );
 
       expect(conversationsStore.get(p)?.producto).toBe("compra_casa");
       expect(conversationsStore.get(p)?.data?.productoForzado).toBeUndefined();
+      expect(leadsInsertRows[0]).toMatchObject({
+        producto: "compra_casa",
+        advisor_id: ADVISOR_ID_GUILLERMO,
+      });
+    });
+
+    it("sin comando, un mensaje de Mejoravit entra directo al flujo Mejoravit", async () => {
+      const p = "5216000000012";
+
+      const bienvenida = await mensajeEntrante(p, "Información del crédito Mejoravit");
+
+      expect(bienvenida).toContain("relación laboral vigente en Nuevo León");
+      expect(conversationsStore.get(p)?.producto).toBe("mejoravit");
+      expect(leadsInsertRows[0]).toMatchObject({
+        producto: "mejoravit",
+        advisor_id: ADVISOR_ID_GUILLERMO,
+      });
+    });
+
+    it("sin comando, un mensaje de generadores entra a Generadores sin asesor automático", async () => {
+      const p = "5216000000013";
+
+      await mensajeEntrante(p, "¡Hola! Quiero más información de generadores para mi casa.");
+
+      expect(conversationsStore.get(p)?.producto).toBe("generadores");
+      expect(leadsInsertRows[0]).toMatchObject({ producto: "generadores" });
+      expect(leadsInsertRows[0]).not.toHaveProperty("advisor_id");
+      expect(leadActionsRows).toEqual([]);
+    });
+
+    describe("menú para mensajes ambiguos (sin_clasificar)", () => {
+      it("primer mensaje ambiguo → lead sin_clasificar, sin asesor, y recibe el menú", async () => {
+        const p = "5216000000014";
+
+        expect(await mensajeEntrante(p, "Hola")).toBe(MSG_MENU_PRODUCTO);
+
+        expect(conversationsStore.get(p)).toMatchObject({
+          lead_id: "lead-1",
+          producto: "sin_clasificar",
+          data: { menuProductoEnviado: true },
+        });
+        expect(leadsInsertRows[0]).toMatchObject({ producto: "sin_clasificar" });
+        expect(leadsInsertRows[0]).not.toHaveProperty("advisor_id");
+      });
+
+      it("el primer mensaje no se interpreta como respuesta al menú aunque mencione una opción", async () => {
+        const p = "5216000000015";
+
+        expect(await mensajeEntrante(p, "Me interesa la casa de la colonia Infonavit")).toBe(
+          MSG_MENU_PRODUCTO,
+        );
+        expect(conversationsStore.get(p)?.producto).toBe("sin_clasificar");
+      });
+
+      it("responder '2' fija Compra de Casa en conversación y lead, asigna asesor y arranca casas", async () => {
+        const p = "5216000000016";
+        await mensajeEntrante(p, "Hola");
+
+        const respuesta = await mensajeEntrante(p, "2");
+
+        expect(respuesta).toBe("¿En qué municipio se encuentra?");
+        expect(conversationsStore.get(p)).toMatchObject({
+          lead_id: "lead-1",
+          producto: "compra_casa",
+          data: { casaStep: "municipio" },
+        });
+        expect(leadsById.get("lead-1")).toMatchObject({
+          producto: "compra_casa",
+          advisor_id: ADVISOR_ID_GUILLERMO,
+        });
+        expect(leadActionsRows.map((r) => [r.accion, r.nota, r.advisor_id])).toEqual([
+          ["cambio_producto_automatico", "menu: compra_casa", null],
+          ["asesor_asignado_automatico", `compra_casa: ${ADVISOR_ID_GUILLERMO}`, null],
+        ]);
+        expect(leadsInsertRows).toHaveLength(1);
+
+        expect(await mensajeEntrante(p, "Apodaca")).toBe("¿En qué colonia se encuentra?");
+      });
+
+      it("responder '1' fija Mejoravit y arranca con la bienvenida de Mejoravit", async () => {
+        const p = "5216000000017";
+        await mensajeEntrante(p, "Buenas tardes");
+
+        const bienvenida = await mensajeEntrante(p, "1");
+
+        expect(bienvenida).toContain("relación laboral vigente en Nuevo León");
+        expect(conversationsStore.get(p)?.producto).toBe("mejoravit");
+        expect(leadsById.get("lead-1")).toMatchObject({
+          producto: "mejoravit",
+          advisor_id: ADVISOR_ID_GUILLERMO,
+        });
+        expect(await mensajeEntrante(p, "Sí")).toContain("dado de alta en Infonavit");
+      });
+
+      it("responder con el texto de la opción también la elige", async () => {
+        const p = "5216000000018";
+        await mensajeEntrante(p, "Hola");
+
+        await mensajeEntrante(p, "Crédito Mejoravit");
+
+        expect(conversationsStore.get(p)?.producto).toBe("mejoravit");
+        expect(leadsById.get("lead-1")?.producto).toBe("mejoravit");
+      });
+
+      it("una respuesta no reconocida reenvía el menú sin clasificar ni asignar", async () => {
+        const p = "5216000000019";
+        await mensajeEntrante(p, "Hola");
+
+        expect(await mensajeEntrante(p, "¿cuánto cuesta?")).toBe(MSG_MENU_PRODUCTO);
+
+        expect(conversationsStore.get(p)?.producto).toBe("sin_clasificar");
+        expect(leadsById.get("lead-1")?.producto).toBe("sin_clasificar");
+        expect(leadsById.get("lead-1")?.advisor_id).toBeUndefined();
+        expect(leadActionsRows).toEqual([]);
+      });
+
+      it("con DEFAULT_ADVISOR_MEJORAVIT configurada, el menú asigna a ese asesor", async () => {
+        vi.stubEnv("DEFAULT_ADVISOR_MEJORAVIT", "asesor-mejoravit-uuid");
+        const p = "5216000000020";
+        await mensajeEntrante(p, "Hola");
+
+        await mensajeEntrante(p, "1");
+
+        expect(leadsById.get("lead-1")?.advisor_id).toBe("asesor-mejoravit-uuid");
+      });
     });
 
     it("reiniciar una conversación Mejoravit antigua (sin comando) conserva Mejoravit, el lead y limpia el flujo", async () => {

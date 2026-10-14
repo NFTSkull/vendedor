@@ -92,6 +92,7 @@ function formatearTelefonoDisplay(phone: string): string {
 function iconoProducto(producto?: string | null): string {
   if (producto === "generadores") return "⚡";
   if (producto === "paneles") return "☀️";
+  if (producto === "compra_casa") return "🔑";
   return "🏠";
 }
 
@@ -438,7 +439,9 @@ export default function CrmLeadDetallePage() {
 
   const productoVolver = useMemo(() => {
     const p = lead?.producto;
-    if (p === "mejoravit" || p === "paneles" || p === "generadores") return p;
+    if (p === "mejoravit" || p === "paneles" || p === "generadores" || p === "compra_casa") {
+      return p;
+    }
     return "generadores";
   }, [lead?.producto]);
 

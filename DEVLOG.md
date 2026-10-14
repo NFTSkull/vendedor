@@ -1,5 +1,33 @@
 # DEVLOG
 
+## 2026-10-14 (número compartido: clasificación, asesor por defecto y pestaña Compra de Casa)
+
+- **Por qué:** el número 8114118767 atiende Mejoravit, Compra de Casa y antes Generadores. Desde que se reutilizó para casas, todo lead nuevo entraba a Compra de Casa aunque viniera por Mejoravit, y `leads.producto` no seguía al comando "activa mejoravit/casas".
+- **Orden de la cascada:**
+  - El anuncio va primero porque lo redacta el negocio. Por eso admite términos más amplios ("infonavit", "vende", "venta").
+  - El mensaje del cliente solo usa frases estrictas. "Infonavit" suelto aparece en colonias ("Infonavit Las Puentes").
+  - Si el texto coincide con más de un producto, se considera ambiguo y se pregunta, en vez de adivinar.
+- **Menú:**
+  - El primer mensaje nunca se interpreta como respuesta al menú. Si no, "me interesa la casa" saltaría la clasificación estricta.
+  - `conversations.data.menuProductoEnviado` marca que ya se mostró.
+  - Al elegir, `procesarYEvolucionar` se vuelve a invocar con el producto ya fijado. Mejoravit responde con su bienvenida y casas con "¿En qué municipio se encuentra?".
+- **Sincronización:** `sincronizarProductoLead` es un UPDATE de `producto` seguido del UPDATE condicionado de `advisor_id` (`.is("advisor_id", null)`).
+  - No es una transacción. Si falla el segundo paso, el lead queda con el producto correcto y sin asesor, como antes del cambio.
+  - Al ligar un lead existente, solo se sincroniza si la conversación quedó clasificada. Con `sin_clasificar` el lead conserva su producto hasta que se elija en el menú.
+- **Asesor:**
+  - `elegirAsesorParaLead` es el único punto de decisión y ya es async. Un reparto por turnos o por carga solo reemplaza esa función.
+  - Las variables se leen en cada llamada.
+  - UUID por defecto: Guillermo (`2d46ad6c-dc1a-4089-81ec-47eb0be7472e`), el mismo de `ADVISOR_ID_GUILLERMO`.
+- **`lead_actions` con `advisor_id` nulo:** `leadsConAtencionHumana` (recordatorios) trata cualquier acción con asesor como atención humana. Registrar al asesor asignado ahí apagaría los recordatorios del lead. El asesor va en `nota`.
+- **Efectos revisados:**
+  - El recordatorio de Mejoravit exige `producto = mejoravit` en lead y conversación. Antes, un lead que pasaba a Mejoravit por comando seguía como `compra_casa` en `leads` y nunca era elegible. Ahora sí lo es, con las mismas reglas.
+  - Generadores sigue exigiendo `generadores` en ambos lados.
+  - Broadcast, bandeja y agenda filtran por `leads.producto`, así que el lead aparece en la pestaña del producto elegido.
+  - Con asesor asignado, el lead sale de la vista del admin (`advisor_id` nulo) y pasa a la del asesor, según la regla de `conAlcance`.
+- **Agenda:** solo Compra de Casa cambia, porque es el único producto sin bot que fije `fecha_contacto`. Mejoravit y Generadores conservan la regla anterior (contactado sin fecha → fuera de la agenda).
+- **Datos al momento del cambio (`lxqvslupzxnkdzbhojad`):** 562 conversaciones de Generadores, 1 de Compra de Casa, 1 de Mejoravit y ninguna sin producto. El caso "reiniciar sin producto" de `reiniciarFlujoCore` no tiene registros que afectar.
+- **Pendiente sin decidir:** ninguna pestaña del CRM muestra leads `sin_clasificar`. Si el cliente nunca contesta el menú, el lead existe en `leads` pero no aparece en Leads ni en Agenda.
+
 ## 2026-10-13 (recordatorios para leads contactados por el bot)
 
 - **Por qué:** desde `ce79dc2` el webhook marca `contactado` tras cada respuesta del bot y vuelve a `nuevo` cuando el cliente escribe. Exigir `nuevo` dejaba fuera justo a quien tiene una pregunta del bot sin responder.

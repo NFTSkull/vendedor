@@ -56,6 +56,79 @@ describe("extraerTextosEntrantes", () => {
     ]);
   });
 
+  it("extrae el anuncio de Meta (referral) validado y solo con los campos de texto", () => {
+    const body = {
+      entry: [
+        {
+          changes: [
+            {
+              field: "messages",
+              value: {
+                metadata: { phone_number_id: "1177472778778882" },
+                messages: [
+                  {
+                    id: "wamid.ref",
+                    from: "521234567890",
+                    type: "text",
+                    text: { body: "Hola, quiero información" },
+                    referral: {
+                      source_url: "https://fb.me/abc",
+                      source_id: "120000000",
+                      source_type: "ad",
+                      headline: " Crédito Mejoravit ",
+                      body: "Usa tu saldo Infonavit",
+                      ctwa_clid: "ARAkLk...",
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    expect(extraerTextosEntrantes(body)).toEqual([
+      {
+        from: "521234567890",
+        body: "Hola, quiero información",
+        wamid: "wamid.ref",
+        phoneNumberId: "1177472778778882",
+        referral: {
+          headline: "Crédito Mejoravit",
+          body: "Usa tu saldo Infonavit",
+          sourceUrl: "https://fb.me/abc",
+        },
+      },
+    ]);
+  });
+
+  it("ignora un referral malformado o sin texto sin perder el mensaje", () => {
+    const mensaje = (referral: unknown) => ({
+      entry: [
+        {
+          changes: [
+            {
+              field: "messages",
+              value: {
+                messages: [
+                  { id: "w", from: "521234567890", type: "text", text: { body: "Hola" }, referral },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    for (const referral of ["texto", { headline: 123, body: ["x"] }, { source_type: "ad" }]) {
+      const [m] = extraerTextosEntrantes(mensaje(referral));
+      expect(m.body).toBe("Hola");
+      expect(m).not.toHaveProperty("referral");
+    }
+    const [conTitulo] = extraerTextosEntrantes(mensaje({ headline: "Vende tu casa", body: 5 }));
+    expect(conTitulo.referral).toEqual({ headline: "Vende tu casa", body: null, sourceUrl: null });
+  });
+
   it("extrae metadata.phone_number_id por entry", () => {
     const body = {
       entry: [

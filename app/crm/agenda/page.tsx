@@ -29,12 +29,14 @@ const TABS = [
   { id: "generadores", label: "Generadores", icon: "⚡" },
   { id: "mejoravit", label: "Mejoravit", icon: "🏠" },
   { id: "paneles", label: "Paneles", icon: "☀️" },
+  { id: "compra_casa", label: "Compra de Casa", icon: "🔑" },
 ] as const;
 
 const TITULOS_TAB: Record<string, string> = {
   mejoravit: "Leads Mejoravit",
   paneles: "Leads Paneles Solares",
   generadores: "Leads Generadores",
+  compra_casa: "Leads Compra de Casa",
 };
 
 type LeadAgenda = LeadAgendaInput;
@@ -59,6 +61,9 @@ function avatarLead(producto?: string | null): {
   }
   if (producto === "paneles") {
     return { label: "☀️", bg: "bg-gradient-to-br from-sky-100 to-sky-200" };
+  }
+  if (producto === "compra_casa") {
+    return { label: "🔑", bg: "bg-gradient-to-br from-violet-100 to-violet-200" };
   }
   return { label: "🏠", bg: "bg-gradient-to-br from-emerald-100 to-teal-100" };
 }

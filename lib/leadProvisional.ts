@@ -1,12 +1,23 @@
+import { elegirAsesorParaLead } from "@/lib/asignacionAsesor";
 import { getConversation, setConversation } from "@/lib/conversationMemory";
-import { detectarProducto, productoForzadoDe } from "@/lib/detectarProducto";
+import {
+  detectarProducto,
+  productoForzadoDe,
+  type ReferralAnuncio,
+} from "@/lib/detectarProducto";
 import { buscarLeadPorTelefono } from "@/lib/messagesDb";
+import {
+  ACCION_ASESOR_AUTOMATICO,
+  registrarAccionAutomatica,
+  sincronizarProductoLead,
+} from "@/lib/productoLead";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type EnsureLeadProvisionalOptions = {
   phoneNumberId?: string;
   primerMensaje?: string;
   advisorId?: string | null;
+  referral?: ReferralAnuncio | null;
 };
 
 export async function ensureLeadProvisional(
@@ -19,6 +30,7 @@ export async function ensureLeadProvisional(
     process.env.WHATSAPP_PHONE_NUMBER_ID?.trim() ||
     "";
   const primerMensaje = options?.primerMensaje ?? "";
+  const referral = options?.referral ?? null;
 
   if (conv.lead_id) return conv.lead_id;
 
@@ -30,17 +42,26 @@ export async function ensureLeadProvisional(
       await asignarAdvisorSiVacio(existing.id, options.advisorId);
     }
     const productoDetectado =
-      productoForzado ?? detectarProducto({ phoneNumberId, primerMensaje });
+      productoForzado ?? detectarProducto({ phoneNumberId, primerMensaje, referral });
     await setConversation(phone, {
       state: conv.state,
       lead_id: existing.id,
       producto: productoDetectado,
     });
+    if (productoDetectado !== "sin_clasificar") {
+      await sincronizarProductoLead(
+        existing.id,
+        productoDetectado,
+        productoForzado ? "comando" : "primer_mensaje",
+      );
+    }
     return existing.id;
   }
 
-  const producto = detectarProducto({ phoneNumberId, primerMensaje });
-  const advisorId = options?.advisorId?.trim() || null;
+  const producto =
+    productoForzado ?? detectarProducto({ phoneNumberId, primerMensaje, referral });
+  const advisorPrefijo = options?.advisorId?.trim() || null;
+  const advisorId = advisorPrefijo ?? (await elegirAsesorParaLead({ producto }));
 
   try {
     const supabase = getSupabaseAdmin();
@@ -79,8 +100,11 @@ export async function ensureLeadProvisional(
     await setConversation(phone, {
       state: conv.state,
       lead_id: data.id,
-      producto: productoForzado ?? producto,
+      producto,
     });
+    if (advisorId && !advisorPrefijo) {
+      await registrarAccionAutomatica(data.id, ACCION_ASESOR_AUTOMATICO, `${producto}: ${advisorId}`);
+    }
     console.log("[leadProvisional] Lead provisional creado:", {
       leadId: data.id,
       producto,

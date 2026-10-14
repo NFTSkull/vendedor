@@ -264,6 +264,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       phoneNumberId: resolvedPhoneNumberId,
       primerMensaje: textoProcesar,
       advisorId: advisorIdDetectado,
+      referral: m.referral ?? null,
     });
     const conversacionLead = await getConversation(m.from);
 

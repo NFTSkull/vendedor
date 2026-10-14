@@ -34,6 +34,7 @@ const TABS = [
   { id: "generadores", label: "Generadores", icon: "⚡", accent: "amber" },
   { id: "mejoravit", label: "Mejoravit", icon: "🏠", accent: "emerald" },
   { id: "paneles", label: "Paneles", icon: "☀️", accent: "sky" },
+  { id: "compra_casa", label: "Compra de Casa", icon: "🔑", accent: "violet" },
 ] as const;
 
 type FiltroEstado = "todos" | LeadEstado;
@@ -49,6 +50,7 @@ const TITULOS_TAB: Record<string, string> = {
   mejoravit: "Leads Mejoravit",
   paneles: "Leads Paneles Solares",
   generadores: "Leads Generadores",
+  compra_casa: "Leads Compra de Casa",
 };
 
 type Lead = {
@@ -110,6 +112,13 @@ function avatarLead(lead: Lead): { label: string; bg: string; ring: string } {
       label: "☀️",
       bg: "bg-gradient-to-br from-sky-100 to-sky-200 text-sky-800",
       ring: "ring-sky-200/80",
+    };
+  }
+  if (lead.producto === "compra_casa") {
+    return {
+      label: "🔑",
+      bg: "bg-gradient-to-br from-violet-100 to-violet-200 text-violet-800",
+      ring: "ring-violet-200/80",
     };
   }
   const digits = lead.whatsapp_phone.replace(/\D/g, "");

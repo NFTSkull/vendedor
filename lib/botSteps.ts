@@ -10,6 +10,7 @@ import { getConversation } from "@/lib/conversationMemory";
 import { procesarYEvolucionarCompraCasa } from "@/lib/botStepsCompraCasa";
 import { procesarYEvolucionarGeneradores } from "@/lib/botStepsGeneradores";
 import { procesarYEvolucionarPaneles } from "@/lib/botStepsPaneles";
+import { procesarMenuProducto } from "@/lib/menuProducto";
 import { procesarTramiteMejoravit } from "@/lib/botStepsTramite";
 import {
   ejecutarPasoCore,
@@ -102,6 +103,11 @@ export async function procesarYEvolucionar(args: {
   }
   if (producto === "compra_casa") {
     return procesarYEvolucionarCompraCasa({ phone, textoUsuario: texto });
+  }
+  if (producto === "sin_clasificar") {
+    const menu = await procesarMenuProducto({ phone, textoUsuario: texto });
+    if (menu.tipo === "respuesta") return menu.texto;
+    return procesarYEvolucionar({ phone, textoUsuario: texto });
   }
   // producto === 'mejoravit' → flujo actual sin cambios
 
