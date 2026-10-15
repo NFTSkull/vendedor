@@ -13,6 +13,8 @@ vi.mock("@anthropic-ai/sdk", () => ({
 import {
   interpretarMensajeTramite,
   interpretarRespuestaCompraCasa,
+  interpretarRespuestaGenerador,
+  interpretarRespuestaUsuario,
   limpiarHistorialClaude,
   naturalizarMensajeBot,
 } from "@/lib/claudeAssistant";
@@ -145,10 +147,82 @@ describe("interpretarMensajeTramite", () => {
     expect(prompt).toContain("¿Cuál es tu correo electrónico?");
   });
 
+  it("el prompt del trámite incluye la base de ConCasa sin el porcentaje de honorarios", async () => {
+    mocks.create.mockResolvedValueOnce(respuestaTexto('{"intencion":"duda","datos":{},"respuesta":null}'));
+    await interpretarMensajeTramite({ textoUsuario: "¿dónde están?", contexto });
+
+    const system = mocks.create.mock.calls[0][0].system as string;
+    expect(system).toContain("BASE DE CONOCIMIENTO CONCASA");
+    expect(system).toContain("Mariano Escobedo 574");
+    expect(system).toContain("https://maps.app.goo.gl/dwKfVX3hWdjEEyM46");
+    expect(system).toContain("Los trámites ante Infonavit son gratuitos.");
+    expect(system).not.toMatch(/18\s?%/);
+  });
+
+  it("descarta respuestas de Claude con datos no confirmados (horarios, teléfonos, aprobación)", async () => {
+    for (const inventada of [
+      "Atendemos de lunes a viernes de 9 a 18 hrs.",
+      "Llámanos al 81 1234 5678.",
+      "Tu crédito ya está aprobado.",
+      "Cobramos 18% de honorarios.",
+    ]) {
+      mocks.create.mockResolvedValueOnce(
+        respuestaTexto(JSON.stringify({ intencion: "duda", datos: {}, respuesta: inventada })),
+      );
+      const r = await interpretarMensajeTramite({ textoUsuario: "x", contexto });
+      expect(r).toEqual({ intencion: "duda", datos: {}, respuesta: null });
+    }
+  });
+
   it("intención desconocida o JSON inválido → null (el flujo sigue sin Claude)", async () => {
     mocks.create.mockResolvedValueOnce(respuestaTexto('{"intencion":"agendar"}'));
     expect(await interpretarMensajeTramite({ textoUsuario: "x", contexto })).toBeNull();
     mocks.create.mockResolvedValueOnce(respuestaTexto("no es json"));
     expect(await interpretarMensajeTramite({ textoUsuario: "x", contexto })).toBeNull();
+  });
+});
+
+describe("la base de ConCasa solo llega a Mejoravit", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    mocks.create.mockResolvedValue(respuestaTexto('{"tipo":"fuera_tema","respuestaRetomo":"ok"}'));
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("Compra de Casa y Generadores no reciben la base ni los honorarios", async () => {
+    const phone = "5215550000200";
+    await interpretarRespuestaCompraCasa({ phone, casaStep: "municipio", preguntaActual: "¿Municipio?", textoUsuario: "x" });
+    await interpretarRespuestaGenerador({ phone, genStep: "tipo", preguntaActual: "¿Tipo?", textoUsuario: "x" });
+    limpiarHistorialClaude(phone);
+
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    for (const [llamada] of mocks.create.mock.calls) {
+      const todo = `${llamada.system}\n${JSON.stringify(llamada.messages)}`;
+      expect(todo).not.toMatch(/ConCasa|Mariano Escobedo|maps\.app\.goo\.gl|honorarios/);
+    }
+  });
+
+  it("la precalificación de Mejoravit recibe la misma base, sin el porcentaje de honorarios", async () => {
+    const phone = "5215550000201";
+    await interpretarRespuestaUsuario({
+      phone,
+      state: "esperando_labor_vigente",
+      textoUsuario: "x",
+      preguntaActual: "¿Trabajas?",
+      tipoEsperado: "si_no",
+    });
+    limpiarHistorialClaude(phone);
+
+    const system = mocks.create.mock.calls[0][0].system as string;
+    expect(system).toContain("BASE DE CONOCIMIENTO CONCASA");
+    expect(system).toContain("Mariano Escobedo 574");
+    expect(system).toContain("https://maps.app.goo.gl/dwKfVX3hWdjEEyM46");
+    expect(system).not.toMatch(/18\s?%/);
   });
 });

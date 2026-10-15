@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import type { BotState } from "@/lib/botStepsCore";
+import { bloqueConocimientoParaPrompt, respuestaDudaPermitida } from "@/lib/conocimientoConCasa";
 import {
   CAMPOS_CAPTURA,
   contextoParaInterpretacion,
@@ -48,7 +49,10 @@ IMPORTANTE:
 - Respuestas profesionales y cordiales
 - Máximo 2 líneas cuando respondas fuera de tema
 - Siempre termina retomando la pregunta actual con texto exacto
-- Responde en texto plano sin markdown, sin asteriscos, sin símbolos de formato`;
+- Responde en texto plano sin markdown, sin asteriscos, sin símbolos de formato
+- Si pregunta por ConCasa, el proceso, costos, citas o seguimiento, responde con la base de conocimiento y después retoma la pregunta actual
+
+${bloqueConocimientoParaPrompt()}`;
 
 export const INSTRUCCIONES_CLAUDE_ESPERANDO_HORARIO = `El usuario está en el paso de agendar contacto.
 Sin importar lo que pregunte, responde brevemente y termina SIEMPRE pidiendo el horario de contacto.
@@ -564,6 +568,10 @@ Reglas para "respuesta" (solo si hay una duda o comentario que atender; si no, n
 - No ofrezcas llamadas ni pidas horarios, y no digas que un asesor se comunicará: el trámite continúa por este chat.
 - No pidas documentos, fotos ni PDFs todavía, y no digas que algún documento fue recibido o validado.
 - Si pregunta para qué se necesita un dato: es parte de su expediente del crédito Mejoravit.
+- Responde solo lo que preguntó: no agregues la dirección, el proceso ni los costos si no los pidió.
+- Una pregunta nunca cambia datos ya capturados: solo usa "datos" si el cliente compartió o corrigió un dato.
+
+${bloqueConocimientoParaPrompt()}
 
 Responde SOLO JSON válido, sin markdown.`;
 
@@ -642,10 +650,12 @@ Devuelve SOLO JSON con esta forma:
         }
       }
     }
-    const respuesta =
+    const texto =
       typeof parsed.respuesta === "string" && parsed.respuesta.trim()
         ? limpiarMarkdown(parsed.respuesta.trim())
         : null;
+    const respuesta = texto && respuestaDudaPermitida(texto) ? texto : null;
+    if (texto && !respuesta) console.log("[claude interpretar tramite] respuesta descartada por salvaguarda");
 
     return { intencion: parsed.intencion as IntencionTramite, datos, respuesta };
   } catch (err) {

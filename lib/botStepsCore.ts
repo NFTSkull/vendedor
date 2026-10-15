@@ -42,9 +42,9 @@ export type ResultadoPaso = {
   exacto: boolean;
 };
 
-export const MSG_BIENVENIDA =
-  "Buenas tardes, gracias por contactarnos.\n\n" +
-  "¿Actualmente tienes una relación laboral vigente en Nuevo León?";
+export const MSG_PREGUNTA_LABOR = "¿Actualmente tienes una relación laboral vigente en Nuevo León?";
+
+export const MSG_BIENVENIDA = "Buenas tardes, gracias por contactarnos.\n\n" + MSG_PREGUNTA_LABOR;
 
 export const MSG_RECHAZO_LABOR =
   "Gracias por contactarnos. Por el momento el crédito Mejoravit está disponible solo para trabajadores activos en Nuevo León. Si tu situación cambia, con gusto te podemos ayudar.";
@@ -103,6 +103,9 @@ export const MSG_CONSULTA_NO_DISPONIBLE =
 
 export const MSG_CONSULTA_EN_CURSO =
   "Sigo consultando tu información en Infonavit; en cuanto tenga el resultado te lo comparto por aquí. 😊";
+
+export const MSG_NSS_EN_ESPERA =
+  "Ya tenemos tu NSS, no necesitas enviarlo de nuevo. Escríbeme cuando quieras y vuelvo a consultar tu información en Infonavit.";
 
 /** Algo más que el timeout del scraper (180 s): mientras tanto no se lanza otra consulta. */
 const VENTANA_CONSULTA_EN_CURSO_MS = 200_000;
@@ -232,6 +235,19 @@ export function preguntaDelEstado(state: BotState): string {
     default:
       return MSG_BIENVENIDA;
   }
+}
+
+/**
+ * Pregunta pendiente para retomar tras una duda: sin repetir el saludo de bienvenida y
+ * sin volver a pedir un NSS que ya se capturó.
+ */
+export function retomoDelEstado(state: BotState, data?: Record<string, unknown>): string {
+  if (state === "esperando_labor_vigente") return MSG_PREGUNTA_LABOR;
+  if (state === "esperando_datos") {
+    const nss = nssPendienteDeConsulta(data);
+    if (nss) return consultaEnCurso(data, nss, Date.now()) ? MSG_CONSULTA_EN_CURSO : MSG_NSS_EN_ESPERA;
+  }
+  return preguntaDelEstado(state);
 }
 
 export function tipoEsperadoDelEstado(

@@ -1,4 +1,14 @@
 import {
+  detectarConsultaConCasa,
+  esConsultaBreve,
+  esPregunta,
+  MSG_SIN_INFORMACION_CONFIRMADA,
+  REQUISITOS_DOCUMENTALES,
+  responderConsultaConCasa,
+  SEGUIMIENTO_SIN_INTEGRACION,
+  type ContextoConsulta,
+} from "@/lib/conocimientoConCasa";
+import {
   FACTOR_NETO_MEJORAVIT,
   TOPE_MONTO_MEJORAVIT,
   type EstimacionCreditoMejoravit,
@@ -496,9 +506,8 @@ export function mensajeCompleto(pendientes: CampoCaptura[]): string {
     "¡Listo! Ya tengo la información principal de tu trámite. 🙌\n\n" +
     bloquePendientes +
     "El siguiente paso será revisar tus documentos:\n" +
-    "• INE vigente (frente y reverso)\n" +
-    "• Comprobante de domicilio\n" +
-    "• Estado de cuenta\n\n" +
+    REQUISITOS_DOCUMENTALES.map((d) => `• ${d}\n`).join("") +
+    "\n" +
     "Por ahora no necesitas enviarlos; en el siguiente paso te los pediré por este mismo chat."
   );
 }
@@ -737,6 +746,7 @@ export function detectarIntencionLocal(
   if (!n) return null;
   if (REGEX_PAUSA.test(n)) return "pausa";
   if (REGEX_RECHAZO_FIRME.test(sinSignos(n))) return "rechaza";
+  if (esConsultaBreve(texto)) return "duda";
 
   const etapa = etapaEfectiva(t);
   if (t.porConfirmar || etapa === "oferta" || etapa === "consentimiento" || etapa === "rechazado") {
@@ -1143,11 +1153,14 @@ function procesarCaptura(
     t.etapa = "pausado";
     return { tramite: t, respuesta: aplicado.guardados.length ? unir("Anotado.", MSG_PAUSA) : MSG_PAUSA };
   }
-  if (aplicado.confirmacion) {
-    return { tramite: t, respuesta: unir(aplicado.guardados.length ? "¡Gracias!" : null, aplicado.confirmacion) };
-  }
+  const respuestaDuda = interp?.respuesta ?? null;
 
-  const respuestaDuda = intencion === "duda" || intencion === "otro" ? interp?.respuesta ?? null : null;
+  if (aplicado.confirmacion) {
+    return {
+      tramite: t,
+      respuesta: unir(respuestaDuda, aplicado.guardados.length ? "¡Gracias!" : null, aplicado.confirmacion),
+    };
+  }
 
   if (aplicado.guardados.length > 0) {
     if (aplicado.error) {
@@ -1155,7 +1168,12 @@ function procesarCaptura(
       t.preguntaAgrupada = false;
       return {
         tramite: t,
-        respuesta: unir("¡Gracias!", aplicado.error.motivo, DEFINICION_CAMPOS[aplicado.error.campo].pregunta(t)),
+        respuesta: unir(
+          respuestaDuda,
+          "¡Gracias!",
+          aplicado.error.motivo,
+          DEFINICION_CAMPOS[aplicado.error.campo].pregunta(t),
+        ),
       };
     }
     if (t.etapa === "completo") {
@@ -1163,7 +1181,7 @@ function procesarCaptura(
       t.campoActual = restantes[0] ?? null;
       return {
         tramite: t,
-        respuesta: unir(MSG_ACTUALIZADO, restantes.length ? avisoPendientes(restantes, "Sigue") : null),
+        respuesta: unir(respuestaDuda, MSG_ACTUALIZADO, restantes.length ? avisoPendientes(restantes, "Sigue") : null),
       };
     }
     return { tramite: t, respuesta: continuar(t, e, unir(respuestaDuda, acuse(t))) };
@@ -1195,7 +1213,7 @@ function procesarCaptura(
   if (saludo && !aplicado.error) {
     return {
       tramite: t,
-      respuesta: unir(reanudando ? MSG_REANUDAR : respuestaDuda, preguntaActualTexto(t)),
+      respuesta: unir(reanudando ? MSG_REANUDAR : null, respuestaDuda, preguntaActualTexto(t)),
     };
   }
 
@@ -1221,6 +1239,45 @@ function procesarCaptura(
   };
 }
 
+function contextoConsulta(t: TramiteMejoravit): ContextoConsulta {
+  const etapa = etapaEfectiva(t);
+  return {
+    momento: etapa === "captura" ? "captura" : etapa === "completo" ? "datos_generales_completos" : "previo",
+    montoEstimadoTexto: formatoMonto(t.credito.montoNetoEstimado),
+    datosGeneralesPendientes: camposPendientes(t).length,
+    seguimiento: SEGUIMIENTO_SIN_INTEGRACION,
+  };
+}
+
+/**
+ * Si Claude no respondió la duda (o no hizo falta llamarlo), usa la respuesta verificada
+ * de la base de ConCasa. Una duda sin respuesta confirmada nunca cuenta como dato inválido.
+ */
+function interpretacionConConsulta(
+  t: TramiteMejoravit,
+  e: EntradaTramite,
+  local: IntencionTramite | null,
+): InterpretacionTramite | null {
+  const interp = e.interpretacion;
+  if (interp?.respuesta || local === "pausa" || local === "rechaza") return interp;
+  const pregunta =
+    local === "duda" ||
+    (interp
+      ? interp.intencion === "duda" || interp.intencion === "otro" || /[?¿]/.test(e.texto)
+      : esPregunta(e.texto));
+  const consulta = pregunta ? detectarConsultaConCasa(e.texto) : null;
+  if (consulta) {
+    const respuesta = responderConsultaConCasa(consulta, contextoConsulta(t));
+    return interp ? { ...interp, respuesta } : { intencion: "duda", datos: {}, respuesta };
+  }
+  if (interp?.intencion === "duda") return { ...interp, respuesta: MSG_SIN_INFORMACION_CONFIRMADA };
+  const enCaptura = ["captura", "completo"].includes(etapaEfectiva(t));
+  if (!interp && local === null && enCaptura && /[?¿]/.test(e.texto) && !REGEX_SALUDO.test(normalizarTexto(e.texto))) {
+    return { intencion: "duda", datos: {}, respuesta: MSG_SIN_INFORMACION_CONFIRMADA };
+  }
+  return interp;
+}
+
 function iniciarCaptura(t: TramiteMejoravit, e: EntradaTramite, prefijo: string | null): ResultadoTramite {
   t.etapa = "captura";
   t.interes = "acepta";
@@ -1231,10 +1288,11 @@ function iniciarCaptura(t: TramiteMejoravit, e: EntradaTramite, prefijo: string 
  * Avanza el trámite con un mensaje del cliente. Puro: recibe el trámite vigente y la
  * interpretación (si hizo falta Claude) y devuelve el nuevo trámite y la respuesta.
  */
-export function avanzarTramite(previo: TramiteMejoravit, e: EntradaTramite): ResultadoTramite {
+export function avanzarTramite(previo: TramiteMejoravit, entrada: EntradaTramite): ResultadoTramite {
   const t = structuredClone(previo);
-  t.ultimaActividadAt = e.ahora;
-  const local = detectarIntencionLocal(t, e.texto);
+  t.ultimaActividadAt = entrada.ahora;
+  const local = detectarIntencionLocal(t, entrada.texto);
+  const e = { ...entrada, interpretacion: interpretacionConConsulta(t, entrada, local) };
   const intencion = local ?? e.interpretacion?.intencion ?? "otro";
   const duda = e.interpretacion?.respuesta ?? null;
   const reanudando = t.etapa === "pausado";
@@ -1268,6 +1326,7 @@ export function avanzarTramite(previo: TramiteMejoravit, e: EntradaTramite): Res
           ? iniciarCaptura(t, e, "¡Qué gusto! Seguimos con tu trámite.")
           : aceptarOferta(t, e);
       }
+      if (intencion === "duda" && duda) return { tramite: t, respuesta: duda };
       t.etapa = "oferta";
       t.interes = "pendiente";
       return { tramite: t, respuesta: mensajeReoferta(t.credito.montoNetoEstimado) };

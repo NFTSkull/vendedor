@@ -1,5 +1,32 @@
 # DEVLOG
 
+## 2026-10-15 (base de conocimientos ConCasa para Mejoravit)
+
+- **Por qué:** con el prompt anterior, a "¿en qué parte de Monterrey tienen su oficina?" Claude respondió "El trámite continúa por este chat sin necesidad de ir a una oficina" (verificado con una llamada real). Con la base responde la dirección y el enlace de Maps.
+- **Una sola fuente:** `lib/conocimientoConCasa.ts` alimenta las respuestas locales y el mismo bloque en los prompts de precalificación y trámite. No llega a Compra de Casa ni Generadores; una prueba lo verifica.
+- **Respuestas locales en vez de Claude para preguntas frecuentes:**
+  - Texto verificado y probado, sin costo ni latencia de Claude.
+  - Criterio "consulta breve": empieza como pregunta (¿, dónde, cuánto, me pasas…), ≤ 90 caracteres, sin @ ni 5+ dígitos y sin empezar con sí/no. Así "Notificaciones del Norte SA" (empresa) o "Juan Carlos, ¿cuánto cobran?" no se contestan localmente.
+  - Si Claude interpreta el mensaje y no responde la duda (o su respuesta se descarta), se usa la respuesta de la base cuando hay coincidencia.
+- **Salvaguarda:** se prefiere descartar una respuesta correcta a enviar una inventada. Las negaciones ("no está aprobado") no se descartan; si alguna frase legítima cae, el cliente recibe la respuesta de la base o "No tengo esa información confirmada…".
+- **Honorarios:** `REGLAS_FINANCIERAS.honorarios` guarda `porcentajePropuesto: 18`, `baseDeCalculo: null` y `validado: false`. `honorariosPublicables()` exige ambas condiciones. Mientras tanto, ni la respuesta local ni el prompt mencionan el porcentaje, y no se calcula ningún importe después de honorarios.
+- **Fórmula de crédito:** `lib/mejoravitCredito.ts` no se tocó (0.90 y tope de 169,000).
+- **Seguimiento:** `SeguimientoExpediente` tiene la variante `concasa_crm` (etapa y fecha) para cuando exista una fuente autorizada. Hoy el trámite siempre usa `sin_integracion` y solo describe lo que consta en el chat (captura de Datos Generales y documentos aún no recibidos).
+- **Sin cambios de comportamiento fuera de las preguntas:** se ejecutaron tres guiones (captura completa, pausas/rechazos/no lo tengo/intentos inválidos y respuestas interpretadas por Claude) con el código anterior y el nuevo. Respuestas, etapas y estado final del trámite son idénticos.
+- **Cambios menores en el trámite:**
+  - Antes, la respuesta de Claude se descartaba si la intención era `dato`, aunque el prompt le pide responder ahí la duda.
+  - Antes, al volver de una pausa con saludo, la duda se perdía.
+  - Sin Claude, "¿para qué lo ocupan?" se guardaba como calle.
+- **Precalificación:**
+  - Una pregunta breve se responde sin tocar el estado: no se llama a `setConversation` ni a la actualización del lead. Así no hay forma de perder el NSS, la respuesta pendiente ni los pasos ya contestados.
+  - Va antes del opt-out porque `FRASES_OPT_OUT` busca subcadenas ("ya no") y "¿ya no tienen oficina?" cerraría la conversación.
+  - Con `nssPendiente`, la pregunta no dispara el reintento del scraper (antes cualquier mensaje lo hacía). Se reintenta con el siguiente mensaje que no sea una pregunta, como hasta ahora.
+  - El retomo no repite "Buenas tardes, gracias por contactarnos" (`MSG_PREGUNTA_LABOR` separado de `MSG_BIENVENIDA`, mismo texto concatenado).
+  - "Avance", "qué sigue" y "aprobado" tienen texto propio del momento `precalificacion`; en `finalizado` no se contestan, porque el estado no dice si hubo trámite.
+  - Sin signos de interrogación solo cuenta como pregunta lo que empieza con un interrogativo; se quitó "ya" de esa lista para que "Ya tengo mi cuenta Infonavit" siga siendo una respuesta.
+  - "Puedo hacerlo solo" no activa la respuesta de trámite directo: "solo" también significa "únicamente". Esa pregunta la resuelve Claude con la base.
+- **Pendiente sin decidir:** licitud, contrato, base de cálculo y forma de cobro del 18%; canal de entrega del acuse; horario y teléfono de la oficina.
+
 ## 2026-10-14 (número compartido: clasificación, asesor por defecto y pestaña Compra de Casa)
 
 - **Por qué:** el número 8114118767 atiende Mejoravit, Compra de Casa y antes Generadores. Desde que se reutilizó para casas, todo lead nuevo entraba a Compra de Casa aunque viniera por Mejoravit, y `leads.producto` no seguía al comando "activa mejoravit/casas".

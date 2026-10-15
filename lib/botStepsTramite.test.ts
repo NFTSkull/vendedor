@@ -97,6 +97,36 @@ describe("procesarTramiteMejoravit", () => {
     expect(guardado.tramite.datos.apellido_materno.valor).toBe("López");
   });
 
+  it("pregunta frecuente de ConCasa: responde con la base sin llamar a Claude y retoma la captura", async () => {
+    mocks.leer.mockResolvedValue(leadCon(tramite("captura")));
+
+    const r = await procesarTramiteMejoravit({ phone: PHONE, texto: "¿Dónde están ubicados?", leadId: "lead-1" });
+
+    expect(mocks.interpretar).not.toHaveBeenCalled();
+    expect(r).toContain("https://maps.app.goo.gl/dwKfVX3hWdjEEyM46");
+    expect(r.endsWith("¿Cuál es tu nombre (o nombres), sin apellidos?")).toBe(true);
+    const guardado = await mocks.guardar.mock.results[0].value;
+    expect(guardado.tramite.datos).toEqual(tramite("captura").datos);
+    expect(guardado.tramite.campoActual).toBe("nombres");
+  });
+
+  it("dato y pregunta en el mismo mensaje: una sola llamada a Claude, guarda el dato y responde", async () => {
+    mocks.leer.mockResolvedValue(leadCon(tramite("captura")));
+    mocks.interpretar.mockResolvedValue({ intencion: "dato", datos: { nombres: "Juan Carlos" }, respuesta: null });
+
+    const r = await procesarTramiteMejoravit({
+      phone: PHONE,
+      texto: "Juan Carlos, ¿y cuánto cobran ustedes?",
+      leadId: "lead-1",
+    });
+
+    expect(mocks.interpretar).toHaveBeenCalledTimes(1);
+    expect(r).toContain("Los trámites ante Infonavit son gratuitos");
+    expect(r).toContain("apellido paterno");
+    const guardado = await mocks.guardar.mock.results[0].value;
+    expect(guardado.tramite.datos.nombres.valor).toBe("Juan Carlos");
+  });
+
   it("si el trámite no se pudo guardar al precalificar, lo reconstruye con la precalificación del lead", async () => {
     mocks.leer.mockResolvedValue(leadCon(null));
 

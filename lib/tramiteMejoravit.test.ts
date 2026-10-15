@@ -473,6 +473,201 @@ describe("comportamiento de vendedor", () => {
   });
 });
 
+/** Avanza la captura respondiendo con datos válidos hasta que la pregunta pendiente sea `campo`. */
+function hastaCampo(campo: CampoCaptura): TramiteMejoravit {
+  let t = aCaptura(nuevo()).tramite;
+  for (let i = 0; i < 80 && t.campoActual !== campo; i++) {
+    t = paso(t, RESPUESTAS[t.campoActual!]).tramite;
+  }
+  expect(t.campoActual).toBe(campo);
+  return t;
+}
+
+/** Lo que una pregunta nunca debe cambiar. */
+function capturaGuardada(t: TramiteMejoravit) {
+  const { datos, pendientes, intentos, campoActual, etapa, consentimiento, documentos, ine, credito } = t;
+  return { datos, pendientes, intentos, campoActual, etapa, consentimiento, documentos, ine, credito };
+}
+
+const MAPS = "https://maps.app.goo.gl/dwKfVX3hWdjEEyM46";
+
+describe("base de conocimientos ConCasa en el trámite", () => {
+  const PREGUNTAS_CLIENTE = [
+    "¿Dónde están ubicados?",
+    "¿Tienen una oficina física?",
+    "¿Me puedes mandar la ubicación?",
+    "¿Qué sigue después de entregar mis documentos?",
+    "¿Dónde tengo que ir a biométricos?",
+    "¿Qué significa Notificación?",
+    "¿Qué pasa en Inscripción?",
+    "¿Qué es el acuse de mi empresa?",
+    "¿Qué hago cuando mi empresa me entregue el acuse?",
+    "¿Cuándo se agenda la firma?",
+    "¿Cuándo se depositan los recursos?",
+    "¿Cómo puedo revisar mi avance?",
+    "¿Cuánto cobran por acompañarme?",
+    "¿El servicio es de Infonavit?",
+    "¿Puedo hacer el trámite directamente?",
+    "¿Mi crédito ya está aprobado?",
+  ];
+
+  it.each(PREGUNTAS_CLIENTE)(
+    "captura: '%s' se responde sin Claude, no modifica datos y retoma la pregunta pendiente",
+    (pregunta) => {
+      const t = hastaCampo("domicilio_calle");
+      expect(necesitaInterpretacion(t, pregunta)).toBe(false);
+
+      const r = paso(t, pregunta);
+
+      expect(capturaGuardada(r.tramite)).toEqual(capturaGuardada(t));
+      expect(r.respuesta.endsWith("¿En qué calle está tu domicilio?")).toBe(true);
+      expect(r.respuesta.indexOf("¿En qué calle")).toBeGreaterThan(20);
+    },
+  );
+
+  it("ubicación: dirección y Maps, seguido de la pregunta pendiente", () => {
+    const r = paso(hastaCampo("correo"), "¿Dónde están ubicados?");
+    expect(r.respuesta).toBe(
+      "Nuestra oficina de ConCasa está en Mariano Escobedo 574, Centro, C.P. 64000, Monterrey, Nuevo León, a una cuadra del CESI y de las oficinas de Infonavit en el centro de Monterrey.\n" +
+        `Ubicación en Google Maps: ${MAPS}\n\n` +
+        "¿Cuál es tu correo electrónico? Es necesario para tu expediente.",
+    );
+  });
+
+  it("solo incluye lo que se preguntó: costos no lleva dirección y ubicación no lleva costos", () => {
+    const t = hastaCampo("curp");
+    const costos = paso(t, "¿Cuánto cobran?").respuesta;
+    expect(costos).not.toContain("Mariano Escobedo");
+    expect(costos).not.toContain(MAPS);
+    const ubicacion = paso(t, "¿Dónde están?").respuesta;
+    expect(ubicacion).not.toMatch(/honorarios|gratuit/);
+  });
+
+  it("¿ya está aprobado? usa el importe estimado del trámite y no afirma aprobación", () => {
+    const r = paso(hastaCampo("curp"), "¿Mi crédito ya está aprobado?");
+    expect(r.respuesta).toContain("Todavía no");
+    expect(r.respuesta).toContain("importe neto estimado de $90,000, sujeto a validación");
+    expect(r.respuesta).not.toMatch(/(tu|su) crédito (ya )?(está|fue) aprobado/i);
+  });
+
+  it("oferta: responde honorarios y vuelve a preguntar si quiere continuar", () => {
+    const r = paso(nuevo(), "¿Cuánto cobran por acompañarme?");
+    expect(r.tramite.etapa).toBe("oferta");
+    expect(r.tramite.interes).toBe("pendiente");
+    expect(r.respuesta).toContain("Los trámites ante Infonavit son gratuitos");
+    expect(r.respuesta.endsWith("¿Te gustaría continuar con tu trámite?")).toBe(true);
+  });
+
+  it("consentimiento: responde y vuelve a pedir la autorización sin darla por aceptada", () => {
+    const consentimiento = paso(nuevo(), "sí").tramite;
+    const r = paso(consentimiento, "¿El servicio es de Infonavit?");
+    expect(r.tramite.etapa).toBe("consentimiento");
+    expect(r.tramite.consentimiento).toBeNull();
+    expect(r.respuesta).toContain("ConCasa es un servicio privado");
+    expect(r.respuesta.endsWith("¿Autorizas el uso de tus datos para integrar tu trámite? Respóndeme sí o no.")).toBe(true);
+  });
+
+  it("completo: explica lo que sigue y el avance sin inventar etapas del expediente", () => {
+    const { t } = completarCaptura(aCaptura(nuevo()));
+    const sigue = paso(t, "¿Qué sigue después de entregar mis documentos?");
+    expect(sigue.respuesta).toContain("se coordina tu primera cita presencial para biométricos");
+    expect(capturaGuardada(sigue.tramite)).toEqual(capturaGuardada(t));
+
+    const avance = paso(t, "¿Cómo puedo revisar mi avance?");
+    expect(avance.respuesta).toContain("ya quedaron registrados tus Datos Generales");
+    expect(avance.respuesta).toContain("Tus documentos aún no se han recibido ni revisado");
+    expect(avance.respuesta).toContain("no está conectado al expediente de ConCasa");
+    expect(avance.respuesta).not.toMatch(/tu cita (está|quedó) (confirmada|agendada)|depositad/i);
+  });
+
+  it("Mi Cuenta Infonavit antes de tiempo: información general, sin cambiar etapa ni documentos", () => {
+    const t = hastaCampo("correo");
+    const r = paso(t, "¿Cómo creo mi cuenta Infonavit?");
+    expect(r.respuesta).toContain("Nunca compartas tu contraseña");
+    expect(capturaGuardada(r.tramite)).toEqual(capturaGuardada(t));
+  });
+
+  it("rechazado: una pregunta se responde sin reabrir la oferta ni cambiar el rechazo", () => {
+    const rechazado = paso(nuevo(), "no gracias").tramite;
+    const r = paso(rechazado, "¿Dónde están ubicados?");
+    expect(r.tramite.etapa).toBe("rechazado");
+    expect(r.tramite.interes).toBe("rechaza");
+    expect(r.respuesta).toContain(MAPS);
+    expect(r.respuesta).not.toContain("¿Te gustaría comenzar tu trámite?");
+  });
+
+  it("pausado: al volver con saludo y pregunta, saluda, responde y retoma la captura", () => {
+    let t = aCaptura(nuevo()).tramite;
+    t = paso(t, "Juan Carlos").tramite;
+    t = paso(t, "luego seguimos").tramite;
+    const r = paso(t, "Hola, ¿dónde están ubicados?");
+    expect(r.respuesta.startsWith(MSG_REANUDAR)).toBe(true);
+    expect(r.respuesta).toContain(MAPS);
+    expect(r.respuesta.endsWith("¿Cuál es tu apellido paterno?")).toBe(true);
+    expect(r.tramite.datos.nombres?.valor).toBe("Juan Carlos");
+  });
+
+  it("mensaje mixto interpretado por Claude: guarda el dato, responde la duda y sigue", () => {
+    const t = hastaCampo("correo");
+    const r = paso(t, "juan@example.com, por cierto ¿dónde están?", {
+      intencion: "dato",
+      datos: { correo: "juan@example.com" },
+      respuesta: null,
+    });
+    expect(r.tramite.datos.correo?.valor).toBe("juan@example.com");
+    expect(r.respuesta.startsWith("Nuestra oficina de ConCasa está en Mariano Escobedo 574")).toBe(true);
+    expect(r.respuesta).toContain("teléfono de casa");
+  });
+
+  it("la respuesta de Claude a una duda se conserva aunque el mensaje también traiga datos", () => {
+    const t = hastaCampo("correo");
+    const r = paso(t, "juan@example.com y ¿para qué lo necesitan?", {
+      intencion: "dato",
+      datos: { correo: "juan@example.com" },
+      respuesta: "Es parte de tu expediente del crédito Mejoravit.",
+    });
+    expect(r.respuesta.startsWith("Es parte de tu expediente del crédito Mejoravit.")).toBe(true);
+    expect(r.respuesta).toContain("teléfono de casa");
+  });
+
+  it("duda sin respuesta confirmada: lo dice, no cuenta como intento fallido y retoma", () => {
+    const t = hastaCampo("curp");
+    const r = paso(t, "¿qué tasa de interés manejan?", { intencion: "duda", datos: {}, respuesta: null });
+    expect(r.respuesta).toContain("No tengo esa información confirmada");
+    expect(r.respuesta.endsWith("la encuentras en tu INE o en tu acta de nacimiento.")).toBe(true);
+    expect(capturaGuardada(r.tramite)).toEqual(capturaGuardada(t));
+  });
+
+  it("sin Claude, una pregunta no se guarda como dato de un campo de texto", () => {
+    const t = hastaCampo("domicilio_calle");
+    const r = paso(t, "¿y eso para qué lo ocupan?");
+    expect(r.tramite.datos.domicilio_calle).toBeUndefined();
+    expect(r.tramite.intentos.domicilio_calle).toBeUndefined();
+    expect(r.respuesta.endsWith("¿En qué calle está tu domicilio?")).toBe(true);
+  });
+
+  it("un dato que se parece a una pregunta frecuente se guarda normalmente", () => {
+    const t = hastaCampo("empresa");
+    const r = paso(t, "Notificaciones del Norte SA");
+    expect(r.tramite.datos.empresa?.valor).toBe("Notificaciones del Norte SA");
+  });
+
+  it("las respuestas de captura existentes no cambian: mismas preguntas y mismo cierre", () => {
+    const { preguntados, respuestas } = completarCaptura(aCaptura(nuevo()));
+    expect(preguntados).toEqual([...CAMPOS_CAPTURA]);
+    expect(respuestas[respuestas.length - 1]).toBe(
+      "¡Gracias!\n\n" +
+        "¡Listo! Ya tengo la información principal de tu trámite. 🙌\n\n" +
+        "El siguiente paso será revisar tus documentos:\n" +
+        "• INE vigente (frente y reverso)\n" +
+        "• Comprobante de domicilio\n" +
+        "• Estado de cuenta\n\n" +
+        "Por ahora no necesitas enviarlos; en el siguiente paso te los pediré por este mismo chat.",
+    );
+    expect(respuestas.join("\n")).not.toMatch(/ConCasa|Mariano Escobedo|honorarios/);
+  });
+});
+
 describe("INE y alcance del trámite", () => {
   it("la INE queda pendiente de revisión: nunca se declara validada", () => {
     const { t, respuestas } = completarCaptura(aCaptura(nuevo()));

@@ -1,5 +1,38 @@
 # Changelog
 
+## [Sin versión semver] — 2026-10-15 (base de conocimientos ConCasa para Mejoravit)
+
+### Cambio actual
+
+- **Base de conocimientos centralizada** (`lib/conocimientoConCasa.ts`), separada en:
+  - Datos comerciales: nombre, oficina (Mariano Escobedo 574, Centro, C.P. 64000, Monterrey, N.L.), referencia y enlace de Google Maps. Horario y teléfonos adicionales quedan explícitamente sin confirmar.
+  - Etapas operativas de ConCasa (9), con la aclaración de que no son procedimientos oficiales de Infonavit, que el orden puede variar y que no hay fechas garantizadas.
+  - Información oficial de Infonavit: trámites gratuitos, trámite directo posible, autorización y recursos a cargo de Infonavit.
+  - Reglas financieras: distinción entre saldo de subcuenta, importe estimado, crédito aprobado e importe recibido. Honorarios del 18% registrados como propuesta **no publicable** hasta validar política y base de cálculo.
+  - Requisitos documentales, estructura de Mi Cuenta Infonavit (guía no habilitada) y tipo de seguimiento preparado para ConCasa CRM (hoy `sin_integracion`).
+- **Preguntas frecuentes sin Claude:** ubicación, horario, teléfono, honorarios, si el servicio es de Infonavit, trámite directo, aprobación, depósitos, acuse, firma, biométricos, Notificación/Inscripción, citas, avance, documentos, qué sigue, proceso y Mi Cuenta Infonavit.
+  - Solo se contestan localmente las preguntas que empiezan como pregunta y no traen datos ni sí/no. Los mensajes mixtos ("Juan, ¿cuánto cobran?") siguen yendo a Claude, con una sola llamada.
+  - La respuesta va primero y después se repite la pregunta pendiente del trámite.
+- **Claude de Mejoravit** (`SYSTEM_PROMPT_TRAMITE_MEJORAVIT` y `SYSTEM_PROMPT` de la precalificación): ambos incluyen el mismo bloque de la base. Compra de Casa y Generadores no lo reciben.
+- **Salvaguarda de respuestas de Claude** (`respuestaDudaPermitida`): se descartan enlaces o teléfonos fuera de la base, horarios, porcentajes de honorarios, aprobaciones/depósitos/citas afirmados y solicitudes de contraseñas o códigos. Si se descarta, se usa la respuesta verificada de la base o "No tengo esa información confirmada…".
+- **Trámite** (`lib/tramiteMejoravit.ts`):
+  - Una pregunta nunca modifica datos, pendientes, intentos, consentimiento ni etapa. En `rechazado` se responde sin reabrir la oferta.
+  - Una duda sin respuesta confirmada ya no cuenta como intento fallido.
+  - La respuesta de Claude a una duda se muestra también cuando el mensaje trae datos (antes se descartaba con intención `dato`).
+  - Al volver de una pausa con saludo y pregunta, se saluda, se responde y se retoma.
+  - Sin Claude, un mensaje con signos de interrogación en la captura ya no se guarda como dato de texto.
+  - La lista de documentos del cierre sale de la base; el texto no cambia.
+- **Precalificación Mejoravit** (`lib/botSteps.ts`, `lib/botStepsCore.ts`): la base también responde antes del NSS.
+  - En el primer mensaje: respuesta y después la bienvenida ("¿Dónde están ubicados?" → dirección, Maps y "¿Actualmente tienes una relación laboral vigente en Nuevo León?").
+  - En cada paso (relación laboral, alta en Infonavit, crédito activo, NSS): respuesta local y se repite la pregunta pendiente (`retomoDelEstado`, sin repetir el saludo). No se escribe la conversación ni el lead y no se llama a Claude ni al scraper.
+  - Con NSS pendiente de consulta: se responde y se avisa que ya tenemos el NSS (`MSG_NSS_EN_ESPERA`) o que la consulta sigue en curso; no se vuelve a pedir ni se reintenta la consulta.
+  - La pregunta breve se evalúa antes del opt-out ("¿ya no tienen oficina?" no cierra la conversación).
+  - Respuesta y pregunta juntas ("Sí, ¿dónde están?"): avanza el paso y la respuesta va primero.
+  - Preguntas complejas: Claude responde con la base; su respuesta pasa por la salvaguarda y siempre termina con la pregunta pendiente. Si se descarta, se usa la respuesta verificada o "No tengo esa información confirmada…".
+  - Contexto `precalificacion`: sin importes ni Datos Generales; "¿ya está aprobado?" explica que primero se precalifica.
+  - Precalificación finalizada: solo se responden las preguntas que no dependen del expediente.
+- **Pruebas:** `lib/conocimientoConCasa.test.ts` (nuevo) y casos nuevos en `tramiteMejoravit`, `botStepsTramite`, `botSteps`, `botStepsMemory`, `botStepsCore` y `claudeAssistant` (661 en total).
+
 ## [Sin versión semver] — 2026-10-14 (número compartido: clasificación, asesor por defecto y pestaña Compra de Casa)
 
 ### Cambio actual

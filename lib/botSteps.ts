@@ -6,7 +6,17 @@ import {
   naturalizarMensajeBot,
   type InterpretacionUsuario,
 } from "@/lib/claudeAssistant";
+import {
+  CONTEXTO_PRECALIFICACION,
+  detectarConsultaConCasa,
+  esConsultaBreve,
+  MSG_SIN_INFORMACION_CONFIRMADA,
+  respuestaDudaPermitida,
+  responderConsultaConCasa,
+  type ConsultaConCasa,
+} from "@/lib/conocimientoConCasa";
 import { getConversation } from "@/lib/conversationMemory";
+import { normalizarTexto } from "@/lib/normalizeText";
 import { procesarYEvolucionarCompraCasa } from "@/lib/botStepsCompraCasa";
 import { procesarYEvolucionarGeneradores } from "@/lib/botStepsGeneradores";
 import { procesarYEvolucionarPaneles } from "@/lib/botStepsPaneles";
@@ -20,6 +30,7 @@ import {
   nssPendienteDeConsulta,
   preguntaDelEstado,
   reiniciarFlujoCore,
+  retomoDelEstado,
   tipoEsperadoDelEstado,
   type BotState,
   type EntradaInterpretada,
@@ -59,6 +70,42 @@ function interpretacionAEntrada(
     default:
       return undefined;
   }
+}
+
+/** Dependen de un trámite en curso: fuera de la precalificación activa no se contestan con su contexto. */
+const CONSULTAS_DE_TRAMITE_EN_CURSO: ReadonlySet<ConsultaConCasa> = new Set([
+  "avance",
+  "que_sigue",
+  "aprobado",
+]);
+
+function unir(...partes: Array<string | null>): string {
+  return partes.filter((p): p is string => Boolean(p?.trim())).join("\n\n");
+}
+
+function respuestaConsultaPrevia(id: ConsultaConCasa): string {
+  return responderConsultaConCasa(id, CONTEXTO_PRECALIFICACION);
+}
+
+function contienePregunta(texto: string, pregunta: string): boolean {
+  const limpiar = (s: string) =>
+    normalizarTexto(s).replace(/[^a-z0-9ñ ]/g, " ").replace(/\s+/g, " ").trim();
+  return limpiar(texto).includes(limpiar(pregunta));
+}
+
+/** Respuesta de Claude a una duda de la precalificación: verificada y terminada en la pregunta pendiente. */
+function respuestaFueraDeTema(
+  texto: string,
+  retomoClaude: string | undefined,
+  pregunta: string,
+): string {
+  const retomo = retomoClaude ? limpiarMarkdown(retomoClaude).trim() : "";
+  if (retomo && respuestaDudaPermitida(retomo)) {
+    return contienePregunta(retomo, pregunta) ? retomo : unir(retomo, pregunta);
+  }
+  const consulta = detectarConsultaConCasa(texto);
+  if (consulta) return unir(respuestaConsultaPrevia(consulta), pregunta);
+  return retomo ? unir(MSG_SIN_INFORMACION_CONFIRMADA, pregunta) : pregunta;
 }
 
 async function aplicarClaudeSalida(
@@ -129,6 +176,17 @@ export async function procesarYEvolucionar(args: {
     );
   }
 
+  // Una pregunta informativa se responde con la base de ConCasa sin Claude y sin tocar el estado.
+  const consultaBreve = esConsultaBreve(texto) ? detectarConsultaConCasa(texto) : null;
+  if (consultaBreve && ESTADOS_CON_CLAUDE.has(estadoActual)) {
+    return unir(respuestaConsultaPrevia(consultaBreve), retomoDelEstado(estadoActual, conv.data));
+  }
+  const consultaSinTramite =
+    consultaBreve && !CONSULTAS_DE_TRAMITE_EN_CURSO.has(consultaBreve) ? consultaBreve : null;
+  if (consultaSinTramite && estadoActual === "finalizado") {
+    return respuestaConsultaPrevia(consultaSinTramite);
+  }
+
   if (estadoActual !== "inicio" && esOptOut(texto)) {
     const resultadoOptOut = await manejarOptOut(phone);
     return resultadoOptOut.texto;
@@ -139,7 +197,9 @@ export async function procesarYEvolucionar(args: {
       phone,
       textoUsuario: texto,
     });
-    return resultadoInicio.texto;
+    return consultaBreve
+      ? unir(respuestaConsultaPrevia(consultaBreve), resultadoInicio.texto)
+      : resultadoInicio.texto;
   }
 
   if (estadoActual === "finalizado" || estadoActual === "esperando_horario") {
@@ -147,7 +207,9 @@ export async function procesarYEvolucionar(args: {
       phone,
       textoUsuario: texto,
     });
-    return resultado.texto;
+    return consultaSinTramite
+      ? unir(respuestaConsultaPrevia(consultaSinTramite), resultado.texto)
+      : resultado.texto;
   }
 
   const state = estadoActual;
@@ -176,8 +238,10 @@ export async function procesarYEvolucionar(args: {
     console.log("[FLUJO] interpretacion Claude:", interp?.tipo);
 
     if (interp?.tipo === "fuera_tema") {
-      return limpiarMarkdown(
-        interp.respuestaRetomo ?? preguntaDelEstado(statePregunta),
+      return respuestaFueraDeTema(
+        texto,
+        interp.respuestaRetomo,
+        retomoDelEstado(statePregunta, conv.data),
       );
     }
 
@@ -211,5 +275,10 @@ export async function procesarYEvolucionar(args: {
   });
 
   const contexto = await estadoActivo(phone);
-  return aplicarClaudeSalida(phone, resultado, contexto);
+  const salida = await aplicarClaudeSalida(phone, resultado, contexto);
+  // Respuesta y pregunta en el mismo mensaje ("sí, ¿dónde están?"): el paso avanza igual y la duda se responde primero.
+  const consultaMixta = /[?¿]/.test(texto) ? detectarConsultaConCasa(texto) : null;
+  return consultaMixta && !CONSULTAS_DE_TRAMITE_EN_CURSO.has(consultaMixta)
+    ? unir(respuestaConsultaPrevia(consultaMixta), salida)
+    : salida;
 }

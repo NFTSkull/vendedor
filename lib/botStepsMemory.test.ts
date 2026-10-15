@@ -1,7 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { procesarYEvolucionar } from "@/lib/botSteps";
-import { MSG_CONSULTA_EN_CURSO, MSG_CONSULTA_NO_DISPONIBLE } from "@/lib/botStepsCore";
+import {
+  MSG_BIENVENIDA,
+  MSG_CONSULTA_EN_CURSO,
+  MSG_CONSULTA_NO_DISPONIBLE,
+  MSG_CREDITO_ACTIVO,
+  MSG_INFONAVIT,
+  MSG_NSS_EN_ESPERA,
+  MSG_PREGUNTA_LABOR,
+  MSG_SOLICITUD_DATOS,
+} from "@/lib/botStepsCore";
 import { aplicarComandoProducto } from "@/lib/comandoProducto";
 import { conversationMemory } from "@/lib/conversationMemory";
 import {
@@ -1275,6 +1284,155 @@ describe("botSteps memoria Map", () => {
         producto: "mejoravit",
         state: "esperando_infonavit",
       });
+    });
+  });
+
+  describe("base de ConCasa antes y después de la precalificación", () => {
+    const MAPS = "https://maps.app.goo.gl/dwKfVX3hWdjEEyM46";
+    const PREGUNTAS: Array<[string, string]> = [
+      ["¿Dónde están ubicados?", "Mariano Escobedo 574, Centro, C.P. 64000, Monterrey"],
+      ["¿Puedo hacer el trámite directamente?", "Puedes realizar tu trámite directamente con Infonavit"],
+      ["¿Dónde tengo que ir a biométricos?", "La primera cita presencial es para tus biométricos"],
+      ["¿Qué pasa en Inscripción?", "Notificación e Inscripción son etapas"],
+      ["¿Qué significa Notificación?", "Notificación e Inscripción son etapas"],
+      ["¿Cuándo se agenda la firma?", "La cita de firma se coordina"],
+      ["¿Cuánto cobran por acompañarme?", "Los trámites ante Infonavit son gratuitos"],
+    ];
+    const PASOS: Array<[string, string[], string]> = [
+      ["esperando_labor_vigente", ["Hola"], MSG_PREGUNTA_LABOR],
+      ["esperando_infonavit", ["Hola", "Sí"], MSG_INFONAVIT],
+      ["esperando_credito_activo", ["Hola", "Sí", "Sí"], MSG_CREDITO_ACTIVO],
+      ["esperando_datos", ["Hola", "Sí", "Sí", "No"], MSG_SOLICITUD_DATOS],
+    ];
+
+    function llamadasAlScraper(): number {
+      return vi.mocked(fetch).mock.calls.filter(([u]) => String(u).includes("/precalificar")).length;
+    }
+
+    function fotografia(p: string) {
+      return structuredClone({
+        conversacion: conversationsStore.get(p),
+        memoria: conversationMemory.get(p),
+        lead: leadsById.get("lead-1"),
+        actualizaciones: leadsUpdateRows.length,
+        acciones: leadActionsRows.length,
+        scraper: llamadasAlScraper(),
+      });
+    }
+
+    for (const [estado, previos, pendiente] of PASOS) {
+      it.each(PREGUNTAS)(`${estado}: "%s" se responde y retoma la pregunta sin cambiar nada`, async (pregunta, fragmento) => {
+        const p = "5217000000001";
+        for (const t of previos) await procesarYEvolucionar({ phone: p, textoUsuario: t });
+        expect(conversationMemory.get(p)?.state).toBe(estado);
+        const antes = fotografia(p);
+
+        const reply = await procesarYEvolucionar({ phone: p, textoUsuario: pregunta });
+
+        expect(reply).toContain(fragmento);
+        expect(reply!.indexOf(fragmento)).toBeLessThan(reply!.indexOf(pendiente));
+        expect(reply!.endsWith(pendiente)).toBe(true);
+        expect(reply).not.toContain("Buenas tardes, gracias por contactarnos");
+        expect(reply).not.toMatch(/18\s?%/);
+        expect(fotografia(p)).toEqual(antes);
+      });
+    }
+
+    it("primer mensaje con pregunta: responde la ubicación y después da la bienvenida", async () => {
+      const p = "5217000000002";
+      const reply = await procesarYEvolucionar({ phone: p, textoUsuario: "¿Dónde están ubicados?" });
+
+      expect(reply!.startsWith("Nuestra oficina de ConCasa está en Mariano Escobedo 574")).toBe(true);
+      expect(reply).toContain(MAPS);
+      expect(reply!.endsWith(MSG_BIENVENIDA)).toBe(true);
+      expect(conversationMemory.get(p)?.state).toBe("esperando_labor_vigente");
+    });
+
+    it("con el NSS ya capturado y la consulta pendiente: no lo vuelve a pedir ni reintenta la consulta", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) =>
+          String(input).includes("/precalificar")
+            ? new Response(JSON.stringify({ success: true, datos: {} }), { status: 200 })
+            : new Response("{}", { status: 200 }),
+        ),
+      );
+      const p = "5217000000003";
+      await llegarANss(p);
+      expect(await procesarYEvolucionar({ phone: p, textoUsuario: "12345678901" })).toBe(MSG_CONSULTA_NO_DISPONIBLE);
+      const antes = fotografia(p);
+
+      const reply = await procesarYEvolucionar({ phone: p, textoUsuario: "¿Dónde están ubicados?" });
+
+      expect(reply).toContain(MAPS);
+      expect(reply!.endsWith(MSG_NSS_EN_ESPERA)).toBe(true);
+      expect(reply).not.toContain("Compárteme tu Número de Seguro Social");
+      expect(fotografia(p)).toEqual(antes);
+      expect(conversationMemory.get(p)?.data?.nssPendiente).toBe("12345678901");
+      errorSpy.mockRestore();
+    });
+
+    it("una pregunta con 'ya no' no se toma como opt-out", async () => {
+      const p = "5217000000004";
+      await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+
+      const reply = await procesarYEvolucionar({ phone: p, textoUsuario: "¿Ya no tienen oficina en el centro?" });
+
+      expect(reply).toContain(MAPS);
+      expect(conversationMemory.get(p)?.state).toBe("esperando_labor_vigente");
+      expect(leadsUpdateRows.some((u) => u.patch.estado === "no_interesado")).toBe(false);
+    });
+
+    it("respuesta y pregunta en el mismo mensaje: avanza el paso y responde primero la duda", async () => {
+      const p = "5217000000005";
+      await procesarYEvolucionar({ phone: p, textoUsuario: "Hola" });
+
+      const reply = await procesarYEvolucionar({ phone: p, textoUsuario: "Sí, ¿dónde están ubicados?" });
+
+      expect(conversationMemory.get(p)?.state).toBe("esperando_infonavit");
+      expect(reply!.startsWith("Nuestra oficina de ConCasa")).toBe(true);
+      expect(reply!.endsWith(MSG_INFONAVIT)).toBe(true);
+    });
+
+    it("antes de precalificar no menciona importes al preguntar si ya está aprobado", async () => {
+      const p = "5217000000006";
+      await llegarANss(p);
+
+      const reply = await procesarYEvolucionar({ phone: p, textoUsuario: "¿Mi crédito ya está aprobado?" });
+
+      expect(reply).toContain("Primero hacemos tu precalificación");
+      expect(reply).not.toMatch(/\$\d/);
+      expect(reply!.endsWith(MSG_SOLICITUD_DATOS)).toBe(true);
+    });
+
+    it.each(PREGUNTAS)('después de precalificar: "%s" se responde en el trámite y retoma la oferta', async (pregunta, fragmento) => {
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const p = "5217000000007";
+      for (const paso of FLUJO_SI) await procesarYEvolucionar({ phone: p, textoUsuario: paso });
+      expect(conversationMemory.get(p)?.state).toBe("tramite_mejoravit");
+      const tramiteAntes = leadsById.get("lead-1")!.tramite_mejoravit as TramiteMejoravit;
+      const scraper = llamadasAlScraper();
+
+      const reply = await procesarYEvolucionar({ phone: p, textoUsuario: pregunta });
+
+      expect(reply).toContain(fragmento);
+      expect(reply!.endsWith("¿Te gustaría continuar con tu trámite?")).toBe(true);
+      const tramite = leadsById.get("lead-1")!.tramite_mejoravit as TramiteMejoravit;
+      expect(tramite.etapa).toBe("oferta");
+      expect(tramite.datos).toEqual(tramiteAntes.datos);
+      expect(tramite.credito).toEqual(tramiteAntes.credito);
+      expect(conversationMemory.get(p)?.state).toBe("tramite_mejoravit");
+      expect(llamadasAlScraper()).toBe(scraper);
+    });
+
+    it("Compra de Casa no usa la base de ConCasa", async () => {
+      const p = "5217000000008";
+      conversationsStore.set(p, { state: "inicio", nss: null, lead_id: null, producto: "compra_casa", data: {} });
+
+      const reply = await procesarYEvolucionar({ phone: p, textoUsuario: "¿Dónde están ubicados?" });
+
+      expect(reply ?? "").not.toMatch(/ConCasa|Mariano Escobedo|maps\.app\.goo\.gl/);
     });
   });
 });
